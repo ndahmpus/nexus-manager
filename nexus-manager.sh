@@ -2748,6 +2748,11 @@ main() {
             7) backup_restore_menu ;; # Unified Backup & Restore menu
             [aA]) docker_prune && should_pause=true ;;
             0) log_info "Keluar dari program."; exit 0 ;;
+            "") 
+                # Empty choice (just Enter pressed) - refresh dashboard
+                log_info "🔄 Refreshing dashboard..." 
+                sleep 1  # Brief pause to show refresh message
+                ;;
             *) log_error "Opsi tidak valid. Silakan coba lagi." ; should_pause=true ;;
         esac
         
