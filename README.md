@@ -40,6 +40,7 @@ A comprehensive bash script for managing Nexus node containers with Docker. This
 ### 1. Download the Script
 
 ```bash
+# Clone the repository
 git clone https://github.com/ndahmpus/nexus-manager.git
 cd nexus-manager
 chmod +x nexus-manager.sh
