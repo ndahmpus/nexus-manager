@@ -759,7 +759,7 @@ high_performance_menu() {
         echo -e "  ${COLOR_CYAN}PERFORMANCE OPTIONS${COLOR_RESET}"
         echo -e "    ${COLOR_CYAN}1.${COLOR_RESET} 🔍 Auto-Detect Optimal Settings"
         echo -e "    ${COLOR_CYAN}2.${COLOR_RESET} 🚀 Launch Optimized Multi-Instances"
-        echo -e "    ${COLOR_CYAN}3.${COLOR_RESET} ⚙️  Manual Resource Configuration"
+        echo -e "    ${COLOR_CYAN}3.${COLOR_RESET} ⚙️ Manual Resource Configuration"
         echo -e "    ${COLOR_CYAN}4.${COLOR_RESET} 📊 View Current Resource Usage"
         echo -e "    ${COLOR_CYAN}5.${COLOR_RESET} 🧪 Test Performance"
         echo
@@ -1631,7 +1631,7 @@ node_control_menu() {
         
         echo -e "  ${COLOR_CYAN}BASIC CONTROL OPTIONS${COLOR_RESET}"
         echo -e "    ${COLOR_CYAN}1.${COLOR_RESET} ▶️ Start Node(s) - Jalankan node yang berhenti"
-        echo -e "    ${COLOR_CYAN}2.${COLOR_RESET} ⏹️  Stop Node(s) - Hentikan node yang berjalan"
+        echo -e "    ${COLOR_CYAN}2.${COLOR_RESET} ⏹️ Stop Node(s) - Hentikan node yang berjalan"
         echo -e "    ${COLOR_CYAN}3.${COLOR_RESET} 🔄 Restart Node(s) - Restart node (berjalan/berhenti)"
         echo -e "    ${COLOR_CYAN}4.${COLOR_RESET} 🗑️ Delete Node(s) - Hapus container secara permanen"
         echo
@@ -1738,9 +1738,9 @@ manage_instances_menu() {
         clear
         echo -e "${COLOR_CYAN}---[ Edit Instance ]---${COLOR_RESET}"
         echo
-        echo -e "  ${COLOR_CYAN}1.${COLOR_RESET} ➕ Tambah Satu Instance Baru"
+        echo -e "  ${COLOR_CYAN}1.${COLOR_RESET} ➕   Tambah Satu Instance Baru"
         echo -e "  ${COLOR_CYAN}2.${COLOR_RESET} ➕➕ Mulai Beberapa Instance"
-        echo -e "  ${COLOR_CYAN}3.${COLOR_RESET} 🗑️  Hapus Instance"
+        echo -e "  ${COLOR_CYAN}3.${COLOR_RESET} 🗑️   Hapus Instance"
         echo
         echo -e "  ${COLOR_CYAN}0.${COLOR_RESET} 🔙 Kembali ke Menu Utama"
         echo
@@ -2613,7 +2613,7 @@ display_menu() {
 	echo
     
     # Simple list layout - easier for Windows PowerShell
-    echo -e "  ${COLOR_CYAN}[1]${COLOR_RESET} 🏠️Build/Update Image            ${COLOR_CYAN}[2]${COLOR_RESET} 🔄 Update Code"
+    echo -e "  ${COLOR_CYAN}[1]${COLOR_RESET} 🏠️Build/Update Image            ${COLOR_CYAN}[2]${COLOR_RESET} 🔄 Update CLI"
     echo -e "  ${COLOR_CYAN}[3]${COLOR_RESET} 📦 Manage Instances              ${COLOR_CYAN}[4]${COLOR_RESET} 🎮 Node Control"
     echo -e "  ${COLOR_CYAN}[5]${COLOR_RESET} 🌐 Environment Config            ${COLOR_CYAN}[6]${COLOR_RESET} 📜 View Logs"
     echo -e "  ${COLOR_CYAN}[7]${COLOR_RESET} 💿 Backup & Restore              ${COLOR_CYAN}[A]${COLOR_RESET} 🧹 Docker Cleanup"

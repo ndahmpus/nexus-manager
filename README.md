@@ -201,29 +201,18 @@ For support and questions:
 
 ## 🔄 Version History
 
-- **v1.0.0** - Initial release with basic functionality
-- **v1.1.0** - Added performance optimization features
-- **v1.2.0** - Enhanced log viewing and analysis
-- **v1.3.0** - Added backup/restore functionality
+- **v0.7.0** - Initial release with basic functionality
+- **v0.8.0** - Added performance optimization features
+- **v0.9.0** - Enhanced log viewing and analysis
+- **v1.0.0** - Added backup/restore functionality
 
-## 📊 Performance Notes
-
-### Resource Recommendations
-
-| Node Count | RAM (GB) | CPU Cores | Performance Level |
-|------------|----------|-----------|-------------------|
-| 2 nodes    | 4-8      | 2-4       | Basic            |
-| 4 nodes    | 8-16     | 4-8       | Standard         |
-| 6 nodes    | 16-24    | 8-16      | Performance      |
-| 8+ nodes   | 24+      | 16+       | High-Performance |
 
 ### Optimization Tips
 
-1. **Use SSD storage** for better I/O performance
-2. **Monitor resource usage** through the dashboard
-3. **Adjust thread counts** based on your hardware
-4. **Enable auto-restart** for production environments
-5. **Regular backups** of configurations and data
+1. **Monitor resource usage** through the dashboard
+2. **Adjust thread counts** based on your hardware
+3. **Enable auto-restart** for production environments
+4. **Regular backups** of configurations and data
 
 ---
 
