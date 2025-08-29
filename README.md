@@ -78,13 +78,21 @@ On first run, the script will guide you through:
 6. **📜 View Logs** - Advanced log viewing and analysis
 7. **💾 Backup & Restore** - Backup and restore configurations
 
+### Performance Optimization
+
+The script automatically optimizes based on your hardware:
+
+- **24+ cores**: 8 containers, high-performance mode
+- **16+ cores**: 6 containers, performance mode  
+- **8+ cores**: 4 containers, standard mode
+- **4+ cores**: 2 containers, basic mode
 
 ### Configuration
 
 Configuration is stored in `~/nexus-node/nexus.conf` with these key settings:
 
 ```bash
-NEXUS_ENVIRONMENT="production"          # Environment mode
+NEXUS_ENVIRONMENT="production"           # Environment mode
 NEXUS_DEFAULT_WALLET="0x..."            # Default wallet address
 NEXUS_MEMORY_LIMIT="4096m"              # Memory limit per container
 NEXUS_CPU_LIMIT="4"                     # CPU cores per container
@@ -179,6 +187,9 @@ Contributions are welcome! Please:
 - Test on multiple environments (Linux, macOS, WSL)
 - Update documentation for new features
 
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🆘 Support
 
@@ -195,7 +206,16 @@ For support and questions:
 - **v1.2.0** - Enhanced log viewing and analysis
 - **v1.3.0** - Added backup/restore functionality
 
+## 📊 Performance Notes
 
+### Resource Recommendations
+
+| Node Count | RAM (GB) | CPU Cores | Performance Level |
+|------------|----------|-----------|-------------------|
+| 2 nodes    | 4-8      | 2-4       | Basic            |
+| 4 nodes    | 8-16     | 4-8       | Standard         |
+| 6 nodes    | 16-24    | 8-16      | Performance      |
+| 8+ nodes   | 24+      | 16+       | High-Performance |
 
 ### Optimization Tips
 
