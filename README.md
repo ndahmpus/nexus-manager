@@ -1,30 +1,60 @@
-# 🚀 Nexus Manager
+# 🚀 Nexus Node Manager Dashboard
 
-A comprehensive bash script for managing Nexus node containers with Docker. This tool provides an intuitive interface for deploying, monitoring, and managing multiple Nexus node instances with performance optimization and advanced configuration options.
+> **Version 2.0** - Enhanced Dashboard & Real-time Monitoring
 
-## ✨ Features
+A powerful bash script for managing Nexus node containers with Docker. Features a beautiful real-time dashboard, intelligent resource monitoring, and comprehensive node management capabilities.
 
-### 🎯 Core Features
-- **Interactive Docker Image Building** - Build and manage Docker images for Nexus nodes
+## 🎆 What's New in v2.0
+
+- **📊 Real-time Dashboard** - Live system monitoring with color-coded indicators
+- **💾 Smart Resource Tracking** - Device RAM usage and total task completion monitoring  
+- **⚡ Performance Indicators** - Color-coded system status with intelligent thresholds
+- **🔥 Task Analytics** - Real-time tracking of completed tasks across all nodes
+- **🎨 Enhanced UI** - Cleaner interface with better visual feedback
+- **🚀 Optimized Performance** - Faster dashboard updates and improved Windows compatibility
+
+## 📸 Dashboard Preview
+
+![Nexus Manager Dashboard](https://github.com/user-attachments/assets/dashboard-preview.png)
+
+### Dashboard Features:
+- **System Monitoring**: CPU cores, RAM usage, and total completed tasks
+- **Node Status**: Real-time view of all containers with status indicators
+- **Resource Usage**: Live CPU%, memory usage, and task completion per node
+- **Color-coded Status**: Green (running), Red (stopped), with performance indicators
+- **Auto-refresh**: Configurable real-time updates
+
+## ✨ Core Features
+
+### 🎯 Management Features
+- **Interactive Dashboard** - Real-time monitoring with beautiful UI
 - **Multi-Instance Management** - Run multiple Nexus node containers simultaneously
-- **High-Performance Optimization** - Automatically optimize resource allocation based on hardware
+- **High-Performance Optimization** - Automatically optimize resource allocation
+- **Smart Task Tracking** - Monitor completed tasks across all nodes
+- **Resource Monitoring** - Real-time system and container resource usage
+
 - **Environment Configuration** - Support for production, devnet, and custom environments
-- **Real-time Log Monitoring** - Advanced log viewer with color-coded output
-- **Backup & Restore** - Configuration and data backup/restore functionality
-- **Health Monitoring** - Built-in health checks for all running containers
+- **Advanced Log Monitoring** - Color-coded log viewer with real-time updates
+- **Backup & Restore** - Complete configuration and data backup/restore
+
+### 📊 Dashboard Indicators
+
+**System Information Bar:**
+- **💻 CPU Cores** - Total available CPU cores
+- **💾 RAM Usage** - Device memory usage (Used/Total)
+- **🏆 Total Tasks** - Cumulative completed tasks (24h)
+
+**Color Coding:**
+- **🟢 Green**: Excellent performance (RAM <60%, Tasks >100)
+- **🟡 Yellow**: Good performance (RAM 60-80%, Tasks 20-100)
+- **🔴 Red**: Attention needed (RAM >80%, Tasks <20)
+- **🟣 Purple**: Idle/No activity
 
 ### ⚡ Performance Features
-- **Auto Hardware Detection** - Automatically detects CPU cores and RAM for optimal resource allocation
-- **Smart Container Distribution** - Distributes containers across available resources efficiently
-- **Resource Limits** - Configurable memory and CPU limits per container
-- **Auto Restart Policies** - Configurable restart behavior for containers
-
-### 🛠️ Management Features
-- **Node Control Center** - Start, stop, restart, and manage individual nodes
-- **Batch Operations** - Perform operations on multiple nodes at once
-- **Configuration Management** - Easy configuration file management
-- **Log Analysis** - Search and analyze logs across all nodes
-- **Instance Optimization** - Automatically create optimally configured instances
+- **Real-time Monitoring** - Live CPU, RAM, and task completion tracking
+- **Auto Hardware Detection** - Optimal resource allocation based on system specs
+- **Smart Resource Management** - Intelligent memory and CPU distribution
+- **Performance Analytics** - Task completion tracking and performance insights
 
 ## 📋 Requirements
 
@@ -34,10 +64,11 @@ A comprehensive bash script for managing Nexus node containers with Docker. This
 - **System Resources**: 
   - Minimum: 4GB RAM, 2 CPU cores
   - Recommended: 8GB+ RAM, 4+ CPU cores for optimal performance
+  - **Note**: Script defaults to unlimited memory usage - ensure adequate RAM
 
 ## 🚀 Quick Start
 
-### 1. Download the Script
+### 1. Download & Setup
 
 ```bash
 # Clone the repository
@@ -46,25 +77,100 @@ cd nexus-manager
 chmod +x nexus-manager.sh
 ```
 
-### 2. Run the Manager
+### 2. Launch Dashboard
 
+**For Linux/macOS:**
 ```bash
 ./nexus-manager.sh
 ```
 
-The script will automatically:
-- Install Docker if not present
-- Create necessary directories
-- Initialize configuration files
-- Display the interactive dashboard
+**For Windows (Git Bash/WSL):**
+```bash
+bash ./nexus-manager.sh
+```
+
+**For Windows (PowerShell):**
+```powershell
+# Install Git Bash or WSL first, then use:
+bash .\nexus-manager.sh
+```
+
+### 📊 What Happens on Launch:
+
+The enhanced dashboard will automatically:
+- **📊 Display real-time system metrics** - CPU cores, device RAM, total tasks
+- **🔧 Auto-configure optimal settings** - 4 threads per container, unlimited memory
+- **🎨 Show color-coded status** - Green (healthy), Yellow (warning), Red (critical)
+- **⚡ Enable auto-refresh** - Live updates every 60 seconds (configurable)
+- **🛠️ Initialize Docker environment** - Auto-install Docker if needed
+- **🚀 Hardware detection** - Optimize based on your system specs
 
 ### 3. First-Time Setup
 
 On first run, the script will guide you through:
-1. Docker installation (if needed)
-2. Initial configuration setup
-3. Hardware optimization analysis
-4. First node deployment
+1. **Docker installation** (if needed) - Automatic detection and installation
+2. **Initial configuration** - Optimized settings based on your hardware
+3. **Hardware optimization** - CPU cores and RAM analysis
+4. **First node deployment** - Guided setup with wallet configuration
+
+## 🛠️ Platform-Specific Instructions
+
+### 🐧 Windows Users
+
+**Recommended Setup:**
+1. Install [Git for Windows](https://git-scm.com/download/win) (includes Git Bash)
+2. Or install [Windows Subsystem for Linux (WSL)](https://docs.microsoft.com/en-us/windows/wsl/install)
+3. Open Git Bash or WSL terminal
+4. Run the script using: `bash ./nexus-manager.sh`
+
+**Alternative (PowerShell):**
+```powershell
+# Enable Windows Subsystem for Linux
+wsl --install
+# Then run in WSL environment
+bash ./nexus-manager.sh
+```
+
+### 🐧 Linux Users
+
+```bash
+# Make executable and run
+chmod +x nexus-manager.sh
+./nexus-manager.sh
+```
+
+### 🍎 macOS Users
+
+```bash
+# Install Homebrew if needed
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Make executable and run
+chmod +x nexus-manager.sh
+./nexus-manager.sh
+```
+
+## 🔄 Upgrading from v1.x
+
+If you're upgrading from a previous version:
+
+```bash
+# Backup your current configuration
+cp ~/nexus-node/nexus.conf ~/nexus-node/nexus.conf.backup
+
+# Pull latest version
+git pull origin main
+
+# Run the updated script
+./nexus-manager.sh
+```
+
+**New in v2.0:**
+- 📊 Enhanced dashboard with real-time monitoring
+- 💾 Smart resource tracking (system RAM + total tasks)
+- 🎨 Improved visual indicators and color coding
+- ⚡ Better Windows compatibility and performance
+- 🚀 Faster dashboard refresh and updates
 
 ## 📖 Usage Guide
 
@@ -87,16 +193,35 @@ The script automatically optimizes based on your hardware:
 - **8+ cores**: 4 containers, standard mode
 - **4+ cores**: 2 containers, basic mode
 
-### Configuration
+### Default Settings
 
-Configuration is stored in `~/nexus-node/nexus.conf` with these key settings:
+The script is pre-configured with the following default settings for optimal performance:
+
+```bash
+# Resource Configuration
+Memory Limit     : UNLIMITED        # No memory restrictions (empty string)
+Default Threads  : 4                # Fixed at 4 threads per container
+CPU Limit        : UNLIMITED        # No CPU core restrictions
+
+# Container Configuration
+Environment      : production       # Default environment mode
+Auto Restart     : false            # Manual restart control
+Memory Check     : false            # Disabled for unlimited memory
+Default Wallet   : (empty)          # Must be configured by user
+```
+
+### Configuration File
+
+All settings are stored in `~/nexus-node/nexus.conf`:
 
 ```bash
 NEXUS_ENVIRONMENT="production"           # Environment mode
+NEXUS_DEFAULT_THREADS="4"               # Default threads per container
 NEXUS_DEFAULT_WALLET="0x..."            # Default wallet address
-NEXUS_MEMORY_LIMIT="4096m"              # Memory limit per container
-NEXUS_CPU_LIMIT="4"                     # CPU cores per container
-NEXUS_AUTO_RESTART="true"               # Auto-restart containers
+NEXUS_MEMORY_LIMIT=""                   # Memory limit (empty = unlimited)
+NEXUS_CPU_LIMIT=""                      # CPU cores limit (empty = unlimited)
+NEXUS_AUTO_RESTART="false"              # Auto-restart containers
+NEXUS_CHECK_MEMORY="false"              # Memory checking enabled/disabled
 ```
 
 ## 🔧 Advanced Features
@@ -201,10 +326,17 @@ For support and questions:
 
 ## 🔄 Version History
 
-- **v0.7.0** - Initial release with basic functionality
-- **v0.8.0** - Added performance optimization features
-- **v0.9.0** - Enhanced log viewing and analysis
-- **v1.0.0** - Added backup/restore functionality
+- **v2.0.0** - 🎆 **Enhanced Dashboard & Real-time Monitoring**
+  - Real-time system resource monitoring (CPU, RAM)
+  - Total task completion tracking across all nodes
+  - Color-coded performance indicators
+  - Improved Windows compatibility
+  - Cleaner UI with better visual feedback
+  - Optimized dashboard refresh performance
+- **v1.0.0** - Added backup/restore functionality and node management
+- **v0.9.0** - Enhanced log viewing and analysis features
+- **v0.8.0** - Performance optimization and multi-instance support
+- **v0.7.0** - Initial release with basic Docker container management
 
 
 ### Optimization Tips

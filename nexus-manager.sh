@@ -21,16 +21,26 @@ BASE_DIR="$HOME/nexus-node"
 NEXUS_IMAGE_NAME="nexus-node:latest"
 NEXUS_ENVIRONMENT="production"
 NEXUS_ORCHESTRATOR_URL=""
-NEXUS_DEFAULT_THREADS="8"
+NEXUS_DEFAULT_THREADS="4"
 NEXUS_CHECK_MEMORY="false"
 NEXUS_DEFAULT_WALLET=""
 NEXUS_MEMORY_LIMIT=""
 NEXUS_CPU_LIMIT=""
 NEXUS_AUTO_RESTART="false"
+NEXUS_AUTO_REFRESH="true"
+NEXUS_REFRESH_INTERVAL="180"
 
 EOF
     fi
     source "$CONFIG_FILE"
+    
+    # Ensure variables are properly set with defaults if empty
+    export NEXUS_DEFAULT_THREADS="${NEXUS_DEFAULT_THREADS:-4}"
+    export NEXUS_MEMORY_LIMIT="${NEXUS_MEMORY_LIMIT:-}"
+    export NEXUS_CPU_LIMIT="${NEXUS_CPU_LIMIT:-}"
+    export NEXUS_AUTO_RESTART="${NEXUS_AUTO_RESTART:-false}"
+    export NEXUS_AUTO_REFRESH="${NEXUS_AUTO_REFRESH:-true}"
+    export NEXUS_REFRESH_INTERVAL="${NEXUS_REFRESH_INTERVAL:-180}"
 }
 
 # Create official nexus config for container
@@ -62,7 +72,7 @@ init_config
 
 readonly BASE_DIR="${BASE_DIR}"
 readonly IMAGE_NAME="${NEXUS_IMAGE_NAME:-nexus-node:latest}"
-readonly DEFAULT_THREADS="8"
+readonly DEFAULT_THREADS="4"
 
 readonly BUILD_DIR="$BASE_DIR/build"
 readonly LOG_DIR="$BASE_DIR/logs"
@@ -127,26 +137,17 @@ optimize_for_high_performance() {
     # Update config untuk resource optimization
     update_config_value "NEXUS_OPTIMAL_CONTAINERS" "$optimal_containers"
     update_config_value "NEXUS_CORES_PER_CONTAINER" "$cores_per_container"
-    update_config_value "NEXUS_DEFAULT_THREADS" "$cores_per_container"
+    # Always use 4 threads as default
+    update_config_value "NEXUS_DEFAULT_THREADS" "4"
     
-    # Memory optimization berdasarkan available RAM
-    local total_ram_mb
-    if command -v free &>/dev/null; then
-        total_ram_mb=$(free -m | awk '/^Mem:/{print $2}')
-    else
-        # Windows fallback
-        total_ram_mb=$(powershell.exe -Command "[math]::Round((Get-CimInstance Win32_PhysicalMemory | Measure-Object Capacity -Sum).Sum / 1MB)" 2>/dev/null || echo "8192")
-    fi
+    # Memory optimization - Set unlimited by default
+    log_info "Setting memory to unlimited for optimal performance"
     
-    local ram_per_container=$((total_ram_mb / optimal_containers))
-    if [[ $ram_per_container -gt 4096 ]]; then
-        ram_per_container=4096  # Cap at 4GB per container
-    fi
-    
-    update_config_value "NEXUS_MEMORY_LIMIT" "${ram_per_container}m"
+    # Set memory limit to unlimited (empty string)
+    update_config_value "NEXUS_MEMORY_LIMIT" ""
     update_config_value "NEXUS_CPU_LIMIT" "$cores_per_container"
     
-    log_success "Performance optimization applied: $optimal_containers containers, ${cores_per_container} cores, ${ram_per_container}MB each"
+    log_success "Performance optimization applied: $optimal_containers containers, 4 threads each, unlimited memory"
     
     # Reload config
     source "$CONFIG_FILE"
@@ -469,13 +470,31 @@ _run_node_container() {
         env_vars+=("-e" "WALLET_ADDRESS=$final_wallet")
     fi
 
-    # Resource limits
+    # Resource limits - ensure clean values
     local resource_args=()
-    if [[ -n "${NEXUS_MEMORY_LIMIT:-}" ]]; then
-        resource_args+=("--memory" "${NEXUS_MEMORY_LIMIT}")
+    
+    # Clean and validate memory limit
+    local clean_memory_limit="${NEXUS_MEMORY_LIMIT:-}"
+    # Remove any unwanted strings like "unlimited"
+    if [[ "$clean_memory_limit" == "unlimited" || "$clean_memory_limit" == "auto" || "$clean_memory_limit" == "none" ]]; then
+        clean_memory_limit=""
     fi
-    if [[ -n "${NEXUS_CPU_LIMIT:-}" ]]; then
-        resource_args+=("--cpus" "${NEXUS_CPU_LIMIT}")
+    
+    if [[ -n "$clean_memory_limit" ]]; then
+        resource_args+=("--memory" "$clean_memory_limit")
+        log_info "Applied memory limit: $clean_memory_limit"
+    fi
+    
+    # Clean and validate CPU limit  
+    local clean_cpu_limit="${NEXUS_CPU_LIMIT:-}"
+    # Remove any unwanted strings
+    if [[ "$clean_cpu_limit" == "unlimited" || "$clean_cpu_limit" == "auto" || "$clean_cpu_limit" == "none" ]]; then
+        clean_cpu_limit=""
+    fi
+    
+    if [[ -n "$clean_cpu_limit" ]]; then
+        resource_args+=("--cpus" "$clean_cpu_limit")
+        log_info "Applied CPU limit: $clean_cpu_limit"
     fi
 
     # Restart policy
@@ -541,7 +560,9 @@ environment_config_menu() {
         echo -e "    CPU Limit        : ${COLOR_GREEN}${NEXUS_CPU_LIMIT:-unlimited}${COLOR_RESET}"
         echo -e "    Default Wallet   : ${COLOR_GREEN}${NEXUS_DEFAULT_WALLET:-none}${COLOR_RESET}"
         echo -e "    Check Memory     : ${COLOR_GREEN}${NEXUS_CHECK_MEMORY:-false}${COLOR_RESET}"
-        echo -e "    Auto Restart     : ${COLOR_GREEN}${NEXUS_AUTO_RESTART:-true}${COLOR_RESET}"
+        echo -e "    Auto Restart     : ${COLOR_GREEN}${NEXUS_AUTO_RESTART:-false}${COLOR_RESET}"
+        echo -e "    Auto Refresh     : ${COLOR_GREEN}${NEXUS_AUTO_REFRESH:-true}${COLOR_RESET}"
+        echo -e "    Refresh Interval : ${COLOR_GREEN}${NEXUS_REFRESH_INTERVAL:-180}s${COLOR_RESET}"
         echo
         echo -e "  ${COLOR_CYAN}CONFIGURATION OPTIONS${COLOR_RESET}"
         echo -e "    ${COLOR_CYAN}1.${COLOR_RESET} 🌐 Change Environment (production/devnet/custom)"
@@ -551,7 +572,8 @@ environment_config_menu() {
         echo -e "    ${COLOR_CYAN}5.${COLOR_RESET} 💰 Set Default Wallet Address"
         echo -e "    ${COLOR_CYAN}6.${COLOR_RESET} 🧠 Toggle Memory Checking"
         echo -e "    ${COLOR_CYAN}7.${COLOR_RESET} 🔄 Toggle Auto Restart"
-        echo -e "    ${COLOR_CYAN}8.${COLOR_RESET} 📄 View Full Config File"
+        echo -e "    ${COLOR_CYAN}8.${COLOR_RESET} 🔄 Auto-Refresh Settings"
+        echo -e "    ${COLOR_CYAN}9.${COLOR_RESET} 📄 View Full Config File"
         echo
         echo -e "    ${COLOR_CYAN}0.${COLOR_RESET} 🔙 Back to Main Menu"
         echo
@@ -569,7 +591,8 @@ environment_config_menu() {
             5) set_default_wallet && should_pause=true ;;
             6) toggle_memory_checking && should_pause=true ;;
             7) toggle_auto_restart && should_pause=true ;;
-            8) view_config_file && should_pause=true ;;
+            8) auto_refresh_settings && should_pause=true ;;
+            9) view_config_file && should_pause=true ;;
             0) return ;;
             *) log_error "Invalid option." ; should_pause=true ;;
         esac
@@ -719,6 +742,138 @@ toggle_auto_restart() {
     fi
 }
 
+auto_refresh_settings() {
+    while true; do
+        clear
+        echo -e "${COLOR_CYAN}---[ 🔄 Auto-Refresh Settings ]---${COLOR_RESET}"
+        echo
+        
+        echo -e "  ${COLOR_YELLOW}CURRENT SETTINGS${COLOR_RESET}"
+        echo -e "    Auto Refresh     : ${COLOR_GREEN}${NEXUS_AUTO_REFRESH:-true}${COLOR_RESET}"
+        echo -e "    Refresh Interval : ${COLOR_GREEN}${NEXUS_REFRESH_INTERVAL:-180} seconds${COLOR_RESET}"
+        echo
+        
+        local running_count
+        running_count=$(docker ps --filter "name=nexus-node-" --format "{{.Names}}" 2>/dev/null | wc -l)
+        
+        echo -e "  ${COLOR_CYAN}STATUS${COLOR_RESET}"
+        if [[ "${NEXUS_AUTO_REFRESH:-true}" == "true" && $running_count -gt 0 ]]; then
+            echo -e "    Current Mode     : ${COLOR_GREEN}ACTIVE${COLOR_RESET} (${running_count} running nodes)"
+        elif [[ "${NEXUS_AUTO_REFRESH:-true}" == "true" ]]; then
+            echo -e "    Current Mode     : ${COLOR_YELLOW}IDLE${COLOR_RESET} (no running nodes)"
+        else
+            echo -e "    Current Mode     : ${COLOR_RED}DISABLED${COLOR_RESET}"
+        fi
+        echo
+        
+        echo -e "  ${COLOR_CYAN}REFRESH OPTIONS${COLOR_RESET}"
+        echo -e "    ${COLOR_CYAN}1.${COLOR_RESET} 🔄 Toggle Auto-Refresh (ON/OFF)"
+        echo -e "    ${COLOR_CYAN}2.${COLOR_RESET} ⏱️ Set Refresh Interval"
+        echo -e "    ${COLOR_CYAN}3.${COLOR_RESET} 📊 Quick Settings"
+        echo
+        echo -e "    ${COLOR_CYAN}0.${COLOR_RESET} 🔙 Back to Environment Config"
+        echo
+        
+        local choice
+        prompt_user "Select Option: " choice
+        echo
+        
+        case "$choice" in
+            1) toggle_auto_refresh ;;
+            2) set_refresh_interval ;;
+            3) quick_refresh_settings ;;
+            0) return ;;
+            *) log_error "Invalid option." ;;
+        esac
+        
+        echo
+        prompt_user "Press Enter to continue..." "dummy_var"
+    done
+}
+
+toggle_auto_refresh() {
+    local current="${NEXUS_AUTO_REFRESH:-true}"
+    
+    if [[ "$current" == "true" ]]; then
+        update_config_value "NEXUS_AUTO_REFRESH" "false"
+        NEXUS_AUTO_REFRESH="false"
+        log_success "Auto-refresh disabled"
+    else
+        update_config_value "NEXUS_AUTO_REFRESH" "true"
+        NEXUS_AUTO_REFRESH="true"
+        log_success "Auto-refresh enabled"
+    fi
+}
+
+set_refresh_interval() {
+    local current_interval="${NEXUS_REFRESH_INTERVAL:-180}"
+    log_info "Current refresh interval: ${current_interval} seconds"
+    log_info "Recommended: 60-300 seconds (1-5 minutes)"
+    echo
+    
+    local new_interval
+    prompt_user "Enter refresh interval in seconds (or press Enter to keep current): " new_interval
+    
+    if [[ -n "$new_interval" ]]; then
+        if [[ ! "$new_interval" =~ ^[0-9]+$ ]] || [[ $new_interval -lt 30 ]] || [[ $new_interval -gt 3600 ]]; then
+            log_error "Invalid interval. Please enter a number between 30-3600 seconds."
+            return 1
+        fi
+        
+        update_config_value "NEXUS_REFRESH_INTERVAL" "$new_interval"
+        NEXUS_REFRESH_INTERVAL="$new_interval"
+        log_success "Refresh interval set to ${new_interval} seconds"
+    else
+        log_info "Refresh interval unchanged"
+    fi
+}
+
+quick_refresh_settings() {
+    log_info "Quick Auto-Refresh Settings:"
+    echo
+    echo -e "  ${COLOR_CYAN}[1]${COLOR_RESET} Fast Refresh (60s)"
+    echo -e "  ${COLOR_CYAN}[2]${COLOR_RESET} Normal Refresh (180s) - Default"
+    echo -e "  ${COLOR_CYAN}[3]${COLOR_RESET} Slow Refresh (300s)"
+    echo -e "  ${COLOR_CYAN}[4]${COLOR_RESET} Disable Auto-Refresh"
+    echo
+    
+    local choice
+    prompt_user "Select quick setting: " choice
+    
+    case "$choice" in
+        1)
+            update_config_value "NEXUS_AUTO_REFRESH" "true"
+            update_config_value "NEXUS_REFRESH_INTERVAL" "60"
+            NEXUS_AUTO_REFRESH="true"
+            NEXUS_REFRESH_INTERVAL="60"
+            log_success "Fast refresh enabled (60 seconds)"
+            ;;
+        2)
+            update_config_value "NEXUS_AUTO_REFRESH" "true"
+            update_config_value "NEXUS_REFRESH_INTERVAL" "180"
+            NEXUS_AUTO_REFRESH="true"
+            NEXUS_REFRESH_INTERVAL="180"
+            log_success "Normal refresh enabled (180 seconds)"
+            ;;
+        3)
+            update_config_value "NEXUS_AUTO_REFRESH" "true"
+            update_config_value "NEXUS_REFRESH_INTERVAL" "300"
+            NEXUS_AUTO_REFRESH="true"
+            NEXUS_REFRESH_INTERVAL="300"
+            log_success "Slow refresh enabled (300 seconds)"
+            ;;
+        4)
+            update_config_value "NEXUS_AUTO_REFRESH" "false"
+            NEXUS_AUTO_REFRESH="false"
+            log_success "Auto-refresh disabled"
+            ;;
+        *)
+            log_error "Invalid choice"
+            return 1
+            ;;
+    esac
+}
+
 view_config_file() {
     log_info "Configuration file: $CONFIG_FILE"
     echo
@@ -827,11 +982,15 @@ manual_resource_config() {
     
     update_config_value "NEXUS_OPTIMAL_CONTAINERS" "$containers"
     update_config_value "NEXUS_CORES_PER_CONTAINER" "$cores"
-    update_config_value "NEXUS_DEFAULT_THREADS" "$cores"
+    # Always use 4 threads as default
+    update_config_value "NEXUS_DEFAULT_THREADS" "4"
     
     if [[ -n "$memory" ]]; then
         update_config_value "NEXUS_MEMORY_LIMIT" "$memory"
         update_config_value "NEXUS_CPU_LIMIT" "$cores"
+    else
+        # Set unlimited memory as default
+        update_config_value "NEXUS_MEMORY_LIMIT" ""
     fi
     
     # Reload config
@@ -2437,17 +2596,146 @@ _calculate_uptime() {
 display_dashboard() {
     clear
     
-    # Title and header
+    # Title and header  
     echo -e "${COLOR_CYAN}╭─────────────────────────────────────────────────────────────────────────────╮${COLOR_RESET}"
     echo -e "${COLOR_CYAN}│                      ${COLOR_GREEN}⚡ NEXUS NODE MANAGER DASHBOARD ⚡${COLOR_CYAN}                     │${COLOR_RESET}"
     echo -e "${COLOR_CYAN}╰─────────────────────────────────────────────────────────────────────────────╯${COLOR_RESET}"
     echo
     
+    # System Information - Enhanced with more indicators
+    local total_cores total_ram_gb used_ram_gb network_status system_uptime docker_version
+    total_cores=$(nproc 2>/dev/null || echo "4")
+    
+    # Get RAM information
+    if command -v free &>/dev/null; then
+        total_ram_gb=$(free -g | awk '/^Mem:/{print $2}')
+        used_ram_gb=$(free -g | awk '/^Mem:/{print $3}')
+    else
+        # Windows fallback
+        total_ram_gb=$(powershell.exe -Command "[math]::Round((Get-CimInstance Win32_PhysicalMemory | Measure-Object Capacity -Sum).Sum / 1GB)" 2>/dev/null || echo "8")
+        used_ram_gb=$(powershell.exe -Command "[math]::Round((Get-CimInstance Win32_OperatingSystem).TotalVirtualMemorySize/1MB - (Get-CimInstance Win32_OperatingSystem).FreeVirtualMemory/1MB)" 2>/dev/null || echo "4")
+    fi
+    
+    # Get network status
+    if command -v ping &>/dev/null; then
+        if ping -c 1 8.8.8.8 >/dev/null 2>&1; then
+            network_status="✓"
+        else
+            network_status="✗"
+        fi
+    else
+        # Windows fallback
+        if ping -n 1 8.8.8.8 >nul 2>&1; then
+            network_status="✓"
+        else
+            network_status="✗"
+        fi
+    fi
+    
+    # Get system uptime
+    if command -v uptime &>/dev/null; then
+        system_uptime=$(uptime -p 2>/dev/null | sed 's/up //' || echo "N/A")
+    else
+        # Windows fallback
+        system_uptime=$(powershell.exe -Command "(Get-CimInstance Win32_OperatingSystem).LastBootUpTime | ForEach-Object { [math]::Round(((Get-Date) - \$_).TotalHours) }" 2>/dev/null || echo "N/A")
+        if [[ "$system_uptime" =~ ^[0-9]+$ ]]; then
+            system_uptime="${system_uptime}h"
+        fi
+    fi
+    
+    # Get Docker version (short)
+    docker_version=$(docker --version 2>/dev/null | awk '{print $3}' | sed 's/,//' | cut -c1-6 || echo "N/A")
+    
+    # RAM usage color coding
+    local ram_color="${COLOR_GREEN}"
+    if [[ "$used_ram_gb" =~ ^[0-9]+$ ]] && [[ "$total_ram_gb" =~ ^[0-9]+$ ]] && [[ $total_ram_gb -gt 0 ]]; then
+        local ram_usage_percent=$((used_ram_gb * 100 / total_ram_gb))
+        if [[ $ram_usage_percent -gt 80 ]]; then
+            ram_color="${COLOR_RED}"
+        elif [[ $ram_usage_percent -gt 60 ]]; then
+            ram_color="${COLOR_YELLOW}"
+        fi
+    fi
+    
+    # Network status color coding
+    local network_color="${COLOR_GREEN}"
+    if [[ "$network_status" == "✗" ]]; then
+        network_color="${COLOR_RED}"
+    fi
+    
+    # Node status summary - Initialize variables first
+    local total_containers running_count stopped_count
+    mapfile -t all_containers_temp < <(docker ps -a --filter "name=nexus-node-" --format "{{.Names}}" 2>/dev/null)
+    mapfile -t running_containers_temp < <(docker ps --filter "name=nexus-node-" --format "{{.Names}}" 2>/dev/null)
+    mapfile -t stopped_containers_temp < <(docker ps -a --filter "name=nexus-node-" --filter "status=exited" --format "{{.Names}}" 2>/dev/null)
+    
+    total_containers=${#all_containers_temp[@]}
+    running_count=${#running_containers_temp[@]}
+    stopped_count=${#stopped_containers_temp[@]}
+    
+    # Calculate total tasks across all nodes
+    local total_tasks=0
+    local task_display="0"
+    local task_color="${COLOR_PURPLE}"
+    
+    if [[ $running_count -gt 0 ]]; then
+        # Sum up tasks from all running containers
+        for container in "${running_containers_temp[@]}"; do
+            if [[ -n "$container" ]]; then
+                # Get task count from logs (24h period)
+                local container_tasks=0
+                
+                if container_logs=$(docker logs --since="24h" "$container" 2>/dev/null); then
+                    if [[ -n "$container_logs" ]]; then
+                        # Count proofs and task completions
+                        local proof_count task_count
+                        proof_count=$(echo "$container_logs" | grep -c "Proof submitted successfully\|Successfully submitted" 2>/dev/null || echo "0")
+                        task_count=$(echo "$container_logs" | grep -c "Got task\|Task completed" 2>/dev/null || echo "0")
+                        
+                        # Validate numbers
+                        [[ "$proof_count" =~ ^[0-9]+$ ]] || proof_count=0
+                        [[ "$task_count" =~ ^[0-9]+$ ]] || task_count=0
+                        
+                        # Use the higher count as indicator
+                        container_tasks=$(( proof_count > task_count ? proof_count : task_count ))
+                    fi
+                fi
+                
+                # Add to total
+                total_tasks=$((total_tasks + container_tasks))
+            fi
+        done
+        
+        task_display="$total_tasks"
+        
+        # Color coding based on total tasks
+        if [[ $total_tasks -ge 100 ]]; then
+            task_color="${COLOR_GREEN}"
+        elif [[ $total_tasks -ge 50 ]]; then
+            task_color="${COLOR_CYAN}"
+        elif [[ $total_tasks -ge 20 ]]; then
+            task_color="${COLOR_YELLOW}"
+        elif [[ $total_tasks -gt 0 ]]; then
+            task_color="${COLOR_RED}"
+        else
+            task_color="${COLOR_PURPLE}"
+        fi
+    else
+        task_display="0"
+        task_color="${COLOR_PURPLE}"
+    fi
+    
+    # Enhanced system info with device RAM and total tasks
+    echo -e "   ${COLOR_PURPLE}💻 System:${COLOR_RESET} ${COLOR_GREEN}${total_cores} cores${COLOR_RESET} | ${ram_color}${used_ram_gb}/${total_ram_gb}GB RAM${COLOR_RESET} | ${task_color}${task_display} tasks${COLOR_RESET}"
+    
+    echo
+    
     # Table header with title-style border
     echo -e "${COLOR_CYAN}╭─────────────────────────────────────────────────────────────────────────────╮${COLOR_RESET}"
-    printf "${COLOR_CYAN}│${COLOR_RESET} ${COLOR_CYAN}%-17s%-12s %-12s%-10s %-10s     %-3s${COLOR_RESET} ${COLOR_CYAN}  │${COLOR_RESET}\n" \
-           "CONTAINER" "NODE ID" "UPTIME" "CPU%" "RAM" "TASKS"
+    printf "${COLOR_CYAN}│${COLOR_RESET} ${COLOR_CYAN}%-18s%-12s %-11s%-10s %-9s   %-4s${COLOR_RESET} ${COLOR_CYAN}     │${COLOR_RESET}\n" \
+           "CONTAINER" "NODE ID" "UPTIME" "CPU%" "RAM" "TASKS" 
     echo -e "${COLOR_CYAN}╰─────────────────────────────────────────────────────────────────────────────╯${COLOR_RESET}"
+    echo
     
     # Container info - Simple format
     local containers=()
@@ -2463,61 +2751,42 @@ display_dashboard() {
         return
     fi
     
-    # Docker is available, now get containers
-    mapfile -t containers < <(docker ps --filter "name=nexus-node-" --format "{{.Names}}" 2>/dev/null | sort)
-    if [ ${#containers[@]} -eq 0 ]; then
-        echo -e "${COLOR_YELLOW}🔍 No running Nexus nodes found.${COLOR_RESET}"
+    # Docker is available, now get ALL containers (running and stopped)
+    local running_containers stopped_containers all_containers
+    mapfile -t running_containers < <(docker ps --filter "name=nexus-node-" --format "{{.Names}}" 2>/dev/null | sort)
+    mapfile -t stopped_containers < <(docker ps -a --filter "name=nexus-node-" --filter "status=exited" --format "{{.Names}}" 2>/dev/null | sort)
+    mapfile -t all_containers < <(docker ps -a --filter "name=nexus-node-" --format "{{.Names}}" 2>/dev/null | sort)
+    
+    if [ ${#all_containers[@]} -eq 0 ]; then
+        # No containers found - show helpful message
+        echo -e "${COLOR_YELLOW} 🔍 No Nexus nodes found${COLOR_RESET}"
+        echo -e " ${COLOR_CYAN}💡 Tip:${COLOR_RESET} Use ${COLOR_GREEN}[3] Manage Instances${COLOR_RESET} to create your first node"
     else
-        for container in "${containers[@]}"; do
+        # Display running containers first
+        for container in "${running_containers[@]}"; do
             if [ -n "$container" ]; then
                 # Get stats dengan timeout dan fallback yang lebih baik
                 local stats cpu_perc mem_usage node_id uptime tasks
                 
-                # Real-time Docker stats dengan Windows-compatible timeout handling
-                local stats_success=false
-                local stats
+                # Fast Docker stats - simplified for performance
+                local stats cpu_perc mem_usage
                 
-                # Try different timeout methods for cross-platform compatibility
-                if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]] || [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
-                    # Windows/WSL environment - use PowerShell timeout if available
-                    if command -v powershell.exe &>/dev/null; then
-                        if stats=$(powershell.exe -Command "& { \$job = Start-Job { docker stats --no-stream --format '{{.CPUPerc}},{{.MemUsage}}' '$container' 2>\$null }; if (Wait-Job \$job -Timeout 5) { Receive-Job \$job } else { Stop-Job \$job; '' } }" 2>/dev/null); then
-                            if [[ -n "$stats" ]]; then
-                                stats_success=true
-                            fi
-                        fi
-                    fi
-                    
-                    # Fallback: try timeout command or direct call
-                    if [[ "$stats_success" == "false" ]]; then
-                        if stats=$(timeout 3 docker stats --no-stream --format "{{.CPUPerc}},{{.MemUsage}}" "$container" 2>/dev/null); then
-                            if [[ -n "$stats" ]]; then
-                                stats_success=true
-                            fi
-                        fi
-                    fi
-                    
-                    # Last resort: direct call without timeout
-                    if [[ "$stats_success" == "false" ]]; then
-                        stats=$(docker stats --no-stream --format "{{.CPUPerc}},{{.MemUsage}}" "$container" 2>/dev/null || echo "")
-                        if [[ -n "$stats" ]]; then
-                            stats_success=true
-                        fi
-                    fi
+                # Try to get Docker stats with fallback for Windows
+                if command -v timeout &>/dev/null; then
+                    # Linux/Unix with timeout command
+                    stats=$(timeout 2 docker stats --no-stream --format "{{.CPUPerc}},{{.MemUsage}}" "$container" 2>/dev/null)
                 else
-                    # Linux native - use regular timeout
-                    if stats=$(timeout 3 docker stats --no-stream --format "{{.CPUPerc}},{{.MemUsage}}" "$container" 2>/dev/null); then
-                        stats_success=true
-                    fi
+                    # Windows fallback - direct docker stats call
+                    stats=$(docker stats --no-stream --format "{{.CPUPerc}},{{.MemUsage}}" "$container" 2>/dev/null)
                 fi
                 
-                # Parse stats if successful
-                if [[ "$stats_success" == "true" && -n "$stats" ]]; then
+                if [[ -n "$stats" && "$stats" != *"Error"* ]]; then
                     cpu_perc=$(echo "$stats" | cut -d',' -f1)
                     mem_usage=$(echo "$stats" | cut -d',' -f2 | awk '{print $1}')
                 else
+                    # Fallback: try alternative method or use default values
                     cpu_perc="0.00%"
-                    mem_usage="0MiB"
+                    mem_usage="32MiB"
                 fi
                 
                 # Get node ID
@@ -2597,9 +2866,42 @@ display_dashboard() {
                     task_color="${COLOR_YELLOW}"
                 fi
                 
-                # Clean row without borders - perfect alignment
-                printf " ${COLOR_GREEN}%-17s${COLOR_RESET} ${COLOR_CYAN}%-12s${COLOR_RESET} ${COLOR_YELLOW}%-10s${COLOR_RESET} ${cpu_color}%-10s${COLOR_RESET} ${mem_color}%-17s${COLOR_RESET} ${task_color}%-10s${COLOR_RESET}\n" \
+                # Clean row without borders - perfect alignment (RUNNING)
+                printf " ${COLOR_GREEN}🟢 %-15s${COLOR_RESET} ${COLOR_CYAN}%-12s${COLOR_RESET} ${COLOR_YELLOW}%-10s${COLOR_RESET} ${cpu_color}%-10s${COLOR_RESET} ${mem_color}%-13s${COLOR_RESET} ${task_color}%-11s${COLOR_RESET}\n" \
                        "$container" "${node_id:-N/A}" "$uptime" "${cpu_perc:-0.00%}" "${mem_usage:-0MiB}" "$tasks"
+            fi
+        done
+        
+        # Display stopped containers
+        for container in "${stopped_containers[@]}"; do
+            if [ -n "$container" ]; then
+                # Get node ID for stopped container
+                local node_id
+                node_id=$(docker inspect "$container" --format '{{range .Config.Env}}{{if eq (index (split . "=") 0) "NODE_ID"}}{{(index (split . "=") 1)}}{{end}}{{end}}' 2>/dev/null)
+                
+                # Get when container was stopped
+                local finished_at
+                finished_at=$(docker inspect "$container" --format '{{.State.FinishedAt}}' 2>/dev/null)
+                local stopped_time="N/A"
+                if [[ -n "$finished_at" && "$finished_at" != "0001-01-01T00:00:00Z" ]]; then
+                    local now finished_ts
+                    now=$(date +%s 2>/dev/null || echo "0")
+                    finished_ts=$(date -d "$finished_at" +%s 2>/dev/null || echo "0")
+                    if [[ "$now" -gt 0 && "$finished_ts" -gt 0 ]]; then
+                        local diff=$((now - finished_ts))
+                        local hours=$((diff / 3600))
+                        local minutes=$(((diff % 3600) / 60))
+                        if [[ $hours -gt 0 ]]; then
+                            stopped_time="${hours}h${minutes}m ago"
+                        else
+                            stopped_time="${minutes}m ago"
+                        fi
+                    fi
+                fi
+                
+                # Display stopped container (STOPPED)
+                printf " ${COLOR_RED}🔴 %-15s${COLOR_RESET} ${COLOR_CYAN}%-12s${COLOR_RESET} ${COLOR_RED}%-10s${COLOR_RESET} ${COLOR_RED}%-10s${COLOR_RESET} ${COLOR_RED}%-13s${COLOR_RESET} ${COLOR_RED}%-11s${COLOR_RESET}\n" \
+                       "$container" "${node_id:-N/A}" "STOPPED" "0.00%" "0MiB" "0"
             fi
         done
     fi
@@ -2607,6 +2909,22 @@ display_dashboard() {
 }
 
 display_menu() {
+    # Node Running Indicator - Above Management Menu
+    local running_count stopped_count total_count
+    running_count=$(docker ps --filter "name=nexus-node-" --format "{{.Names}}" 2>/dev/null | wc -l)
+    stopped_count=$(docker ps -a --filter "name=nexus-node-" --filter "status=exited" --format "{{.Names}}" 2>/dev/null | wc -l)
+    total_count=$((running_count + stopped_count))
+    
+    # Display node status indicator
+    if [[ $running_count -gt 0 ]]; then
+        echo -e " ${COLOR_GREEN}☑️  ${running_count} Nexus node(s) running${COLOR_RESET} • ${COLOR_CYAN}${total_count} total${COLOR_RESET}"
+    elif [[ $total_count -gt 0 ]]; then
+        echo -e " ${COLOR_YELLOW}⚠️  All ${total_count} node(s) stopped${COLOR_RESET} • ${COLOR_CYAN}Ready to start${COLOR_RESET}"
+    else
+        echo -e " ${COLOR_RED}❌  No nodes created yet${COLOR_RESET} • ${COLOR_GREEN}Ready to deploy${COLOR_RESET}"
+    fi
+    echo
+    
     echo -e "${COLOR_CYAN}╭─────────────────────────────────────────────────────────────────────────────╮${COLOR_RESET}"
     echo -e "${COLOR_CYAN}│                              ${COLOR_YELLOW}📋 MANAGEMENT MENU${COLOR_CYAN}                             │${COLOR_RESET}"
     echo -e "${COLOR_CYAN}╰─────────────────────────────────────────────────────────────────────────────╯${COLOR_RESET}"
@@ -2729,13 +3047,43 @@ main() {
         fi
     fi
     
-    # Main dashboard loop
+    # Main dashboard loop with auto-refresh
     while true; do
         display_dashboard
         display_menu
+        
+        # Check if auto-refresh is enabled and nodes are running
+        local running_count
+        running_count=$(docker ps --filter "name=nexus-node-" --format "{{.Names}}" 2>/dev/null | wc -l)
+        
         local choice
-        prompt_user "Pilih Opsi: " choice
-        echo
+        if [[ "${NEXUS_AUTO_REFRESH:-true}" == "true" && $running_count -gt 0 ]]; then
+            # Auto-refresh mode - show countdown timer
+            local refresh_interval="${NEXUS_REFRESH_INTERVAL:-180}"
+            echo -e "${COLOR_CYAN}ℹ️  Auto-refresh:${COLOR_RESET} ${COLOR_GREEN}ON${COLOR_RESET} (${refresh_interval}s) | Running nodes: ${COLOR_GREEN}$running_count${COLOR_RESET} | ${COLOR_YELLOW}Press any key for menu${COLOR_RESET}"
+            echo
+            
+            # Read with timeout for auto-refresh
+            if read -t "$refresh_interval" -rp "$(echo -e "${COLOR_PURPLE} ❔ Question    >${COLOR_RESET} Pilih Opsi: ")" choice 2>/dev/null; then
+                echo
+            else
+                # Timeout reached - auto refresh
+                echo
+                log_info "🔄 Auto-refreshing dashboard..."
+                sleep 1
+                continue
+            fi
+        else
+            # Manual refresh mode
+            if [[ "${NEXUS_AUTO_REFRESH:-true}" != "true" ]]; then
+                echo -e "${COLOR_CYAN}ℹ️  Auto-refresh:${COLOR_RESET} ${COLOR_RED}OFF${COLOR_RESET}"
+            else
+                echo -e "${COLOR_CYAN}ℹ️  Auto-refresh:${COLOR_RESET} ${COLOR_YELLOW}IDLE${COLOR_RESET} (no running nodes)"
+            fi
+            echo
+            prompt_user "Pilih Opsi: " choice
+            echo
+        fi
 
         local should_pause=false
         case "$choice" in

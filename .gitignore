@@ -1,53 +1,39 @@
-# Nexus Node Configuration and Data
+# Nexus Node Data & Configuration
 nexus.conf
 .nexus/
 nexus-node/
 config/
 backups/
-
-# Logs and temporary files
+build/
 logs/
+health/
+
+# Runtime & Temporary Files
 *.log
 *.tmp
 *.pid
-health/
+.cache/
 
-# Docker related
-build/
-.docker/
-
-# OS specific files
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# Editor files
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.vim/
-
-# Environment variables
-.env
-.env.local
-.env.production
-.env.staging
-
-# Backup files
-*.bak
-*.backup
-*.old
-
-# Sensitive data
+# Sensitive Information
 *.key
 *.pem
 *.cert
 wallet_*
 private_key*
 seed_*
+.env*
 
-# Runtime files
-*.pid
-.cache/
+# OS & Editor Files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Backup Files
+*.bak
+*.backup
+*.old
