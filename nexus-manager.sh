@@ -4523,12 +4523,10 @@ show_auto_refresh_countdown() {
         if read -t 1 -n 1 user_input 2>/dev/null; then
             # User pressed a key
             printf "\n\n"
-            printf "${COLOR_PURPLE} ❔ Question    >${COLOR_RESET} Choose Option: "
             
             # Get the rest of input (show prompt for Enter key)
             if [[ "$user_input" == $'\n' || "$user_input" == "" ]]; then
                 # User pressed Enter - show question prompt
-                printf "\n\n"
                 local enter_choice
                 prompt_user "Choose Option: " enter_choice
                 eval "$choice_var='$enter_choice'"
