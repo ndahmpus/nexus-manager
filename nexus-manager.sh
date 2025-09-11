@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 set -eu
 
 if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]] || [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
@@ -75,7 +75,7 @@ JSON_EOF
     log_info "Created nexus config: node_id=$node_id, wallet=$wallet_address, env=$environment"
 }
 
-# Panggil inisialisasi konfigurasi di awal
+# Initialize configuration at startup
 init_config
 
 readonly BASE_DIR="${BASE_DIR}"
@@ -109,7 +109,7 @@ prompt_confirm() {
 }
 
 # ╭───────────────────────────────────────────────────────────────────╮
-# │ 🛠️ FUNGSI INTI & PEMBANTU                                          │
+# │ 🛠️ CORE FUNCTIONS & HELPERS                                         │
 # ╰───────────────────────────────────────────────────────────────────╯
 
 # High-performance resource optimization
@@ -142,7 +142,7 @@ optimize_for_high_performance() {
         log_info "Basic mode: $optimal_containers containers, $cores_per_container cores each"
     fi
     
-    # Update config untuk resource optimization
+    # Update config for resource optimization
     update_config_value "NEXUS_OPTIMAL_CONTAINERS" "$optimal_containers"
     update_config_value "NEXUS_CORES_PER_CONTAINER" "$cores_per_container"
     # Always use 4 threads as default
@@ -203,7 +203,6 @@ auto_generate_optimal_instances() {
 init_dirs() {
     mkdir -p "$BUILD_DIR" "$LOG_DIR" "$CONFIG_DIR" "$BACKUP_DIR" "$HEALTH_CHECK_DIR"
     chmod 755 "$LOG_DIR" "$HEALTH_CHECK_DIR" 2>/dev/null || true
-    # Tidak perlu sudo jika menggunakan home directory
     if [[ "$BASE_DIR" =~ ^/root/ ]] && [[ $EUID -ne 0 ]]; then
         log_warn "Running as non-root user but BASE_DIR points to /root. Using $HOME/nexus-node instead."
         BASE_DIR="$HOME/nexus-node"
@@ -215,7 +214,6 @@ init_dirs() {
 check_dependencies() {
     log_info "🔍 Checking system dependencies..."
     
-    # Check jq - SIMPLIFIED
     if ! command -v jq &>/dev/null; then
         log_error "❌ jq is required but not installed"
         echo
@@ -234,7 +232,6 @@ check_dependencies() {
     fi
     log_success "✅ jq is available"
     
-    # Check Docker - SIMPLIFIED
     if ! command -v docker &>/dev/null; then
         log_error "❌ Docker is required but not installed"
         echo
@@ -253,7 +250,6 @@ check_dependencies() {
     fi
     log_success "✅ Docker command is available"
     
-    # Test Docker daemon - SIMPLIFIED
     if ! docker info &>/dev/null 2>&1; then
         log_error "❌ Docker is installed but not running"
         echo
@@ -280,17 +276,15 @@ check_dependencies() {
 
 
 prepare_build_files() {
-    log_info "Mempersiapkan file build di $BUILD_DIR..."
+    log_info "Preparing build files in $BUILD_DIR..."
     mkdir -p "$BUILD_DIR"
 
-    # Modern lightweight build menggunakan official binary
     cat > "$BUILD_DIR/Dockerfile" <<'EOF'
 FROM alpine:3.22.0
 
 # Install dependencies
 RUN apk update && apk add --no-cache curl ca-certificates jq
 
-# Download nexus-cli binary directly based on architecture (v0.10.11)
 RUN ARCH=$(uname -m) && \\
     case "$ARCH" in \\
         x86_64) NEXUS_URL="https://github.com/nexus-xyz/nexus-cli/releases/download/v0.10.11/nexus-network-linux-x86_64" ;; \\
@@ -304,15 +298,12 @@ RUN ARCH=$(uname -m) && \\
     ln -s /usr/local/bin/nexus-cli /usr/local/bin/nexus-network && \
     # Verify installation
     /usr/local/bin/nexus-cli --version && \
-    # Cleanup
     apk del curl && \
     rm -rf /var/cache/apk/*
 
-# Copy entrypoint script
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Health check untuk monitoring
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD nexus-cli --help > /dev/null 2>&1 || exit 1
 
@@ -323,12 +314,10 @@ EOF
 #!/bin/sh
 set -e
 
-# Handle help/version commands
 if [ "$1" = "--version" ] || [ "$1" = "--help" ] || [ "$1" = "version" ] || [ "$1" = "help" ]; then
     exec nexus-cli "$@"
 fi
 
-# Validate required environment variables
 if [ -z "$NODE_ID" ]; then
     echo "❌ Error: NODE_ID environment variable is required"
     exit 1
@@ -339,7 +328,6 @@ if [ -z "$MAX_THREADS" ]; then
     MAX_THREADS=""
 fi
 
-# Setup directories
 readonly DATA_DIR="/nexus-data"
 readonly CONFIG_DIR="/nexus-config" 
 readonly LOG_FILE="${DATA_DIR}/nexus-${NODE_ID}.log"
@@ -354,10 +342,8 @@ echo "⚙️  Config: ${CONFIG_DIR}"
 echo "📝 Log: ${LOG_FILE}"
 echo "🌐 Binary: $(nexus-cli --version 2>/dev/null || echo 'nexus-cli not found')"
 
-# Build command arguments
 CMD_ARGS="start"
 
-# Add headless flag if enabled (default: true for lighter Docker performance)
 if [ "${HEADLESS:-true}" = "true" ]; then
     CMD_ARGS="$CMD_ARGS --headless"
 fi
@@ -366,7 +352,6 @@ if [ -n "$NODE_ID" ]; then
     CMD_ARGS="$CMD_ARGS --node-id $NODE_ID"
 fi
 
-# DEPRECATED in v0.10.11: max-threads will be ignored but we keep for compatibility
 if [ -n "$MAX_THREADS" ]; then
     echo "⚠️ Warning: --max-threads is DEPRECATED in v0.10.11 and will be ignored"
     # CMD_ARGS="$CMD_ARGS --max-threads $MAX_THREADS"  # Commented out as deprecated
@@ -376,7 +361,6 @@ if [ -n "$ORCHESTRATOR_URL" ]; then
     CMD_ARGS="$CMD_ARGS --orchestrator-url $ORCHESTRATOR_URL"
 fi
 
-# NEW v0.10.11: Support for max difficulty override
 if [ -n "$MAX_DIFFICULTY" ]; then
     CMD_ARGS="$CMD_ARGS --max-difficulty $MAX_DIFFICULTY"
 fi
@@ -385,17 +369,14 @@ if [ "$CHECK_MEMORY" = "true" ]; then
     CMD_ARGS="$CMD_ARGS --check-memory"
 fi
 
-# NEW: Support for background colors (v0.10.10)
 if [ "$WITH_BACKGROUND" = "true" ]; then
     CMD_ARGS="$CMD_ARGS --with-background"
 fi
 
-# NEW: Support for max tasks limit (v0.10.10)
 if [ -n "$MAX_TASKS" ]; then
     CMD_ARGS="$CMD_ARGS --max-tasks $MAX_TASKS"
 fi
 
-# Create nexus config if wallet provided
 if [ -n "$WALLET_ADDRESS" ]; then
     mkdir -p "$CONFIG_DIR/.nexus"
     cat > "$CONFIG_DIR/.nexus/config.json" <<JSON_EOF
@@ -411,7 +392,6 @@ fi
 
 echo "🏁 Executing: nexus-cli $CMD_ARGS"
 
-# Execute with logging
 exec nexus-cli $CMD_ARGS 2>&1 | tee -a "$LOG_FILE"
 EOF
     chmod +x "$BUILD_DIR/entrypoint.sh"
@@ -420,26 +400,26 @@ EOF
 _build_image() {
     # Check Docker availability before building
     if ! command -v docker &>/dev/null; then
-        log_error "Docker tidak ditemukan. Silakan install Docker terlebih dahulu."
-        if prompt_confirm "Install Docker sekarang?"; then
+        log_error "Docker not found. Please install Docker first."
+        if prompt_confirm "Install Docker now?"; then
             install_docker_ce
         else
-            log_error "Docker dibutuhkan untuk build image."
+            log_error "Docker is required to build image."
             return 1
         fi
     elif ! docker info &>/dev/null 2>&1; then
-        log_error "Docker terinstal tapi tidak berjalan. Silakan start Docker service."
+        log_error "Docker is installed but not running. Please start Docker service."
         return 1
     fi
     
     local build_args=("$@")
-    log_info "Memulai build image Docker: $IMAGE_NAME..."
+    log_info "Starting Docker image build: $IMAGE_NAME..."
     if ! docker build "${build_args[@]}" -t "$IMAGE_NAME" "$BUILD_DIR"; then
-        log_error "Build image gagal. Periksa output di atas untuk detailnya."
+        log_error "Image build failed. Check output above for details."
         return 1
     fi
-    log_success "Build image selesai."
-    log_info "Memeriksa versi image..."
+    log_success "Image build completed."
+    log_info "Checking image version..."
     docker run --rm "$IMAGE_NAME" --version
     return 0
 }
@@ -447,20 +427,20 @@ _build_image() {
 build_image_interactive() {
     # Check Docker availability before checking existing images
     if ! command -v docker &>/dev/null; then
-        log_error "Docker tidak ditemukan. Silakan install Docker terlebih dahulu."
-        if prompt_confirm "Install Docker sekarang?"; then
+        log_error "Docker not found. Please install Docker first."
+        if prompt_confirm "Install Docker now?"; then
             install_docker_ce
         else
-            log_error "Docker dibutuhkan untuk build image."
+            log_error "Docker is required to build image."
             return 1
         fi
     elif ! docker info &>/dev/null 2>&1; then
-        log_error "Docker terinstal tapi tidak berjalan. Silakan start Docker service."
+        log_error "Docker is installed but not running. Please start Docker service."
         return 1
     fi
     
     if docker image inspect "$IMAGE_NAME" &>/dev/null; then
-        ! prompt_confirm "Image '$IMAGE_NAME' sudah ada. Bangun ulang?" && return 1
+        ! prompt_confirm "Image '$IMAGE_NAME' already exists. Rebuild?" && return 1
     fi
     prepare_build_files
     _build_image --no-cache
@@ -477,7 +457,7 @@ _run_node_container() {
     local threads="$3"
     local wallet_address="${4:-}"
 
-    log_info "Memulai kontainer '$name' dengan ID Node: $node_id..."
+    log_info "Starting container '$name' with Node ID: $node_id..."
     mkdir -p "${CONFIG_DIR}/${node_id}"
 
     # Prepare environment variables
@@ -500,17 +480,14 @@ _run_node_container() {
         env_vars+=("-e" "WALLET_ADDRESS=$final_wallet")
     fi
     
-    # NEW v0.10.10: Support for background colors
     if [[ "${NEXUS_WITH_BACKGROUND:-false}" == "true" ]]; then
         env_vars+=("-e" "WITH_BACKGROUND=true")
     fi
     
-    # NEW v0.10.10: Support for max tasks limit
     if [[ -n "${NEXUS_MAX_TASKS:-}" ]]; then
         env_vars+=("-e" "MAX_TASKS=${NEXUS_MAX_TASKS}")
     fi
     
-    # NEW v0.10.11: Support for max difficulty override
     if [[ -n "${NEXUS_MAX_DIFFICULTY:-}" ]]; then
         env_vars+=("-e" "MAX_DIFFICULTY=${NEXUS_MAX_DIFFICULTY}")
     fi
@@ -552,7 +529,6 @@ _run_node_container() {
         restart_policy="unless-stopped"
     fi
 
-    # Create nexus config if wallet provided
     if [[ -n "$final_wallet" ]]; then
         create_nexus_config "$node_id" "$final_wallet" "${CONFIG_DIR}/${node_id}" "${NEXUS_ENVIRONMENT:-production}"
     fi
@@ -571,11 +547,11 @@ _run_node_container() {
         --health-timeout=10s \
         --health-retries=3 \
         "$IMAGE_NAME"; then
-        log_error "Gagal memulai kontainer $name."
+        log_error "Failed to start container $name."
         return 1
     fi
     
-    log_success "Instance '$name' dimulai (Node: $node_id, Threads: $threads, Wallet: ${final_wallet:-none})."
+    log_success "Instance '$name' started (Node: $node_id, Threads: $threads, Wallet: ${final_wallet:-none})."
     return 0
 }
 
@@ -936,7 +912,6 @@ quick_refresh_settings() {
     esac
 }
 
-# NEW v0.10.10: Toggle background colors for dashboard
 toggle_background_colors() {
     local current="${NEXUS_WITH_BACKGROUND:-false}"
     
@@ -953,7 +928,6 @@ toggle_background_colors() {
     log_info "Note: This affects the Nexus CLI dashboard appearance inside containers"
 }
 
-# NEW v0.10.11: Set maximum difficulty override
 set_max_difficulty() {
     local current_difficulty="${NEXUS_MAX_DIFFICULTY:-}"
     log_info "Current max difficulty: ${current_difficulty:-auto (self-regulating)}"
@@ -1030,7 +1004,6 @@ toggle_headless_mode() {
     fi
 }
 
-# NEW v0.10.10: Set maximum tasks limit
 set_max_tasks_limit() {
     local current_limit="${NEXUS_MAX_TASKS:-}"
     log_info "Current max tasks limit: ${current_limit:-unlimited}"
@@ -1243,7 +1216,6 @@ view_resource_usage() {
     echo -e "    Total CPU Usage  : ${COLOR_GREEN}${total_cpu_usage:-0.0}%${COLOR_RESET}"
     echo -e "    Total Memory Used: ${COLOR_GREEN}${total_memory_mb:-0}MB${COLOR_RESET}"
     
-    # Calculate efficiency
     local cpu_efficiency
     if [[ -n "$total_cpu_usage" && "$total_cpu_usage" != "0.0" ]]; then
         cpu_efficiency=$(awk "BEGIN {printf \"%.1f\", ($total_cpu_usage / $total_cores)}")
@@ -1271,7 +1243,6 @@ test_performance() {
         
         echo -e "  ${COLOR_CYAN}Testing $container (Node ID: $node_id)${COLOR_RESET}"
         
-        # Sample resource usage over 30 seconds
         local cpu_samples=0
         local cpu_total=0
         local memory_total=0
@@ -1306,7 +1277,6 @@ test_performance() {
             echo -e "    Average CPU : ${COLOR_GREEN}${avg_cpu}%${COLOR_RESET}"
             echo -e "    Average RAM : ${COLOR_GREEN}${avg_memory}MB${COLOR_RESET}"
             
-            # Performance rating
             local rating="Good"
             local rating_color="${COLOR_GREEN}"
             
@@ -1348,7 +1318,7 @@ _select_container() {
     fi
     
     if [ ${#containers[@]} -eq 0 ]; then
-        log_warn "Tidak ada instance yang ditemukan."
+        log_warn "No instances found."
         return 1
     fi
 
@@ -1356,10 +1326,10 @@ _select_container() {
     for i in "${!containers[@]}"; do
         echo -e "  ${COLOR_CYAN}[$((i+1))]${COLOR_RESET} ${containers[i]}"
     done
-    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Batal"
+    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Cancel"
 
     local choice
-    prompt_user "Masukkan pilihan Anda: " choice
+    prompt_user "Enter your choice: " choice
     
     if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -gt 0 ] && [ "$choice" -le "${#containers[@]}" ]; then
         eval "$selected_container_var='${containers[$((choice-1))]}'"
@@ -1370,6 +1340,79 @@ _select_container() {
 }
 
 # Unified backup and restore menu
+perform_backup_all_nodes() {
+    local containers
+    mapfile -t containers < <(docker ps -a --filter "name=nexus-node-" --format "{{.Names}}" | sort)
+    
+    if [ ${#containers[@]} -eq 0 ]; then
+        log_warn "No nodes found to backup."
+        return 1
+    fi
+    
+    log_info "Will backup ${#containers[@]} node(s):"
+    for container in "${containers[@]}"; do
+        local node_id
+        node_id=$(docker inspect "$container" --format '{{range .Config.Env}}{{if eq (index (split . "=") 0) "NODE_ID"}}{{(index (split . "=") 1)}}{{end}}{{end}}' 2>/dev/null || echo "N/A")
+        echo -e "  - ${COLOR_CYAN}${container}${COLOR_RESET} (Node ID: ${node_id})"
+    done
+    echo
+    
+    if ! prompt_confirm "Continue backup for all ${#containers[@]} node(s)?"; then
+        return 1
+    fi
+    
+    local success_count=0
+    local failed_count=0
+    local timestamp=$(date +%Y%m%d-%H%M%S)
+    
+    log_info "Starting batch backup..."
+    echo
+    
+    for container in "${containers[@]}"; do
+        local node_id
+        node_id=$(docker inspect "$container" --format '{{range .Config.Env}}{{if eq (index (split . "=") 0) "NODE_ID"}}{{(index (split . "=") 1)}}{{end}}{{end}}' 2>/dev/null)
+        
+        if [ -z "$node_id" ]; then
+            log_error "Failed to get Node ID for ${container}. Skipping..."
+            ((failed_count++))
+            continue
+        fi
+        
+        local source_dir="${CONFIG_DIR}/${node_id}"
+        if [ ! -d "$source_dir" ]; then
+            log_error "Config directory for Node ID $node_id not found. Skipping..."
+            ((failed_count++))
+            continue
+        fi
+        
+        local backup_file="${BACKUP_DIR}/nexus-node-${node_id}-${timestamp}.tar.gz"
+        log_info "[${success_count}+${failed_count}+1/${#containers[@]}] Backup ${container} (Node ID: ${node_id})..."
+        
+        if tar -czf "$backup_file" -C "${CONFIG_DIR}" "${node_id}" 2>/dev/null; then
+            log_success "✅ Backup successful: $(basename "$backup_file")"
+            ((success_count++))
+        else
+            log_error "❌ Backup failed for Node ID ${node_id}"
+            rm -f "$backup_file" 2>/dev/null  # Clean up failed backup
+            ((failed_count++))
+        fi
+    done
+    
+    echo
+    log_info "📊 Backup Summary:"
+    echo -e "    ${COLOR_GREEN}✅ Successful: ${success_count}${COLOR_RESET}"
+    echo -e "    ${COLOR_RED}❌ Failed    : ${failed_count}${COLOR_RESET}"
+    echo -e "    ${COLOR_CYAN}📁 Location  : ${BACKUP_DIR}${COLOR_RESET}"
+    
+    if [ $success_count -gt 0 ]; then
+        log_success "Batch backup completed with ${success_count} backup files successfully created."
+        return 0
+    else
+        log_error "Batch backup failed - no backup files were successfully created."
+        return 1
+    fi
+}
+
 backup_restore_menu() {
     while true; do
         clear
@@ -1399,9 +1442,9 @@ backup_restore_menu() {
         echo
         
         echo -e "  ${COLOR_CYAN}BACKUP & RESTORE OPTIONS${COLOR_RESET}"
-        echo -e "    ${COLOR_CYAN}1.${COLOR_RESET} 💾 Create New Backup - Backup node configuration"
-        echo -e "    ${COLOR_CYAN}2.${COLOR_RESET} 📦 Restore from Backup - Restore node from backup"
-        echo -e "    ${COLOR_CYAN}3.${COLOR_RESET} 🗑️ Delete Old Backups - Clean up backup files"
+        echo -e "    ${COLOR_CYAN}1.${COLOR_RESET} 💾 Create New Backup - Backup single node or all nodes (option [a])"
+        echo -e "    ${COLOR_CYAN}2.${COLOR_RESET} 📦 Restore from Backup - Restore single backup or all backups (option [a])"
+        echo -e "    ${COLOR_CYAN}3.${COLOR_RESET} 🗑️ Delete Old Backups - Clean up backup files (supports [a] for all)"
         echo -e "    ${COLOR_CYAN}4.${COLOR_RESET} 📊 View Backup Details - Show backup information"
         echo
         echo -e "    ${COLOR_CYAN}0.${COLOR_RESET} 🔙 Back to Main Menu"
@@ -1429,27 +1472,140 @@ backup_restore_menu() {
 }
 
 perform_backup() {
-    local container
-    if ! _select_container "Pilih node untuk di-backup:" container; then return 1; fi
-
-    local node_id
-    node_id=$(docker inspect "$container" --format '{{range .Config.Env}}{{if eq (index (split . "=") 0) "NODE_ID"}}{{(index (split . "=") 1)}}{{end}}{{end}}')
-    local source_dir="${CONFIG_DIR}/${node_id}"
-
-    if [ ! -d "$source_dir" ]; then
-        log_error "Direktori config untuk Node ID $node_id tidak ditemukan di '$source_dir'."
+    local containers
+    mapfile -t containers < <(docker ps -a --filter "name=nexus-node-" --format "{{.Names}}" | sort)
+    
+    if [ ${#containers[@]} -eq 0 ]; then
+        log_warn "No nodes found to backup."
         return 1
     fi
     
-    local backup_file="${BACKUP_DIR}/nexus-node-${node_id}-$(date +%Y%m%d-%H%M%S).tar.gz"
-    log_info "Mem-backup '$source_dir' ke '$backup_file'..."
+    log_info "Select node to backup:"
+    for i in "${!containers[@]}"; do
+        local node_id
+        node_id=$(docker inspect "${containers[i]}" --format '{{range .Config.Env}}{{if eq (index (split . "=") 0) "NODE_ID"}}{{(index (split . "=") 1)}}{{end}}{{end}}' 2>/dev/null || echo "N/A")
+        echo -e "  ${COLOR_CYAN}[$((i+1))]${COLOR_RESET} ${containers[i]} (Node ID: ${node_id})"
+    done
+    echo -e "  ${COLOR_CYAN}[a]${COLOR_RESET} Backup All Nodes (${#containers[@]} nodes)"
+    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Cancel"
+    echo
 
-    if ! tar -czf "$backup_file" -C "${CONFIG_DIR}" "${node_id}"; then
-        log_error "Backup gagal."
+    local choice
+    prompt_user "Enter your choice: " choice
+
+    if [[ "$choice" == "0" ]]; then
+        return 1
+    elif [[ "$choice" =~ ^[aA]$ ]]; then
+        # Backup all nodes
+        return $(perform_backup_all_nodes)
+    elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -gt 0 ] && [ "$choice" -le "${#containers[@]}" ]; then
+        # Backup single selected node
+        local container="${containers[$((choice-1))]}"
+        local node_id
+        node_id=$(docker inspect "$container" --format '{{range .Config.Env}}{{if eq (index (split . "=") 0) "NODE_ID"}}{{(index (split . "=") 1)}}{{end}}{{end}}')
+        local source_dir="${CONFIG_DIR}/${node_id}"
+
+        if [ ! -d "$source_dir" ]; then
+            log_error "Config directory for Node ID $node_id not found at '$source_dir'."
+            return 1
+        fi
+        
+        local backup_file="${BACKUP_DIR}/nexus-node-${node_id}-$(date +%Y%m%d-%H%M%S).tar.gz"
+        log_info "Backing up '$source_dir' to '$backup_file'..."
+
+        if ! tar -czf "$backup_file" -C "${CONFIG_DIR}" "${node_id}"; then
+            log_error "Backup failed."
+            return 1
+        fi
+        log_success "Backup completed: $backup_file"
+        return 0
+    else
+        log_error "Invalid choice."
         return 1
     fi
-    log_success "Backup selesai: $backup_file"
-    return 0
+}
+
+perform_restore_all_backups() {
+    local backups
+    mapfile -t backups < <(find "$BACKUP_DIR" -name "nexus-node-*.tar.gz" | sort -r)
+
+    if [ ${#backups[@]} -eq 0 ]; then
+        log_warn "No backup files found to restore."
+        return 1
+    fi
+    
+    log_info "Will restore ${#backups[@]} backup file(s):"
+    for backup in "${backups[@]}"; do
+        local backup_name=$(basename "$backup")
+        local backup_size=$(ls -lh "$backup" | awk '{print $5}')
+        # Extract node ID from backup filename
+        local node_id=$(echo "$backup_name" | sed -n 's/nexus-node-\([0-9]\+\)-.*/\1/p')
+        echo -e "  - ${COLOR_CYAN}${backup_name}${COLOR_RESET} (${backup_size}) → Node ID: ${node_id:-Unknown}"
+    done
+    echo
+    
+    log_warn "${COLOR_YELLOW}WARNING:${COLOR_RESET} This will OVERWRITE all existing config for related nodes!"
+    echo
+    
+    if ! prompt_confirm "Continue restore for all ${#backups[@]} backup(s)?"; then
+        return 1
+    fi
+    
+    local success_count=0
+    local failed_count=0
+    
+    log_info "Starting batch restore..."
+    echo
+    
+    for backup in "${backups[@]}"; do
+        local backup_name=$(basename "$backup")
+        # Extract node ID from backup filename
+        local node_id=$(echo "$backup_name" | sed -n 's/nexus-node-\([0-9]\+\)-.*/\1/p')
+        
+        if [ -z "$node_id" ]; then
+            log_error "Failed to extract Node ID from ${backup_name}. Skipping..."
+            ((failed_count++))
+            continue
+        fi
+        
+        log_info "[${success_count}+${failed_count}+1/${#backups[@]}] Restore ${backup_name} → Node ID: ${node_id}"
+        
+        # Stop container if running
+        local container_to_stop
+        container_to_stop=$(docker ps -q --filter "name=nexus-node-" | xargs -r docker inspect --format '{{.Name}} {{range .Config.Env}}{{if eq (index (split . "=") 0) "NODE_ID"}}{{(index (split . "=") 1)}}{{end}}{{end}}' 2>/dev/null | awk -v id="$node_id" '$2==id {print $1}' | sed 's/^\///' | head -1)
+        
+        if [ -n "$container_to_stop" ]; then
+            log_info "  Stopping container $container_to_stop..."
+            docker stop "$container_to_stop" >/dev/null 2>&1 || true
+        fi
+        
+        # Restore backup
+        local target_dir="${CONFIG_DIR}/${node_id}"
+        rm -rf "$target_dir" 2>/dev/null || true
+        mkdir -p "$target_dir"
+        
+        if tar -xzf "$backup" -C "${CONFIG_DIR}" 2>/dev/null; then
+            log_success "  ✅ Restore successful for Node ID ${node_id}"
+            ((success_count++))
+        else
+            log_error "  ❌ Restore failed for Node ID ${node_id}"
+            ((failed_count++))
+        fi
+    done
+    
+    echo
+    log_info "📊 Restore Summary:"
+    echo -e "    ${COLOR_GREEN}✅ Successful: ${success_count}${COLOR_RESET}"
+    echo -e "    ${COLOR_RED}❌ Failed    : ${failed_count}${COLOR_RESET}"
+    
+    if [ $success_count -gt 0 ]; then
+        log_success "Batch restore completed with ${success_count} node(s) successfully restored."
+        log_info "Please restart or create instances for the restored nodes."
+        return 0
+    else
+        log_error "Batch restore failed - no backups were successfully restored."
+        return 1
+    fi
 }
 
 perform_restore() {
@@ -1457,53 +1613,66 @@ perform_restore() {
     mapfile -t backups < <(find "$BACKUP_DIR" -name "nexus-node-*.tar.gz" | sort -r)
 
     if [ ${#backups[@]} -eq 0 ]; then
-        log_warn "Tidak ada file backup di '$BACKUP_DIR'."
+        log_warn "No backup files found in '$BACKUP_DIR'."
         return 1
     fi
     
-    log_info "Pilih file backup untuk dipulihkan:"
+    log_info "Select backup file to restore:"
     for i in "${!backups[@]}"; do
-        echo -e "  ${COLOR_CYAN}[$((i+1))]${COLOR_RESET} $(basename "${backups[i]}")"
+        local backup_name=$(basename "${backups[i]}")
+        local node_id=$(echo "$backup_name" | sed -n 's/nexus-node-\([0-9]\+\)-.*/\1/p')
+        echo -e "  ${COLOR_CYAN}[$((i+1))]${COLOR_RESET} $backup_name (Node ID: ${node_id:-Unknown})"
     done
-    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Batal"
+    echo -e "  ${COLOR_CYAN}[a]${COLOR_RESET} Restore All Backups (${#backups[@]} files)"
+    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Cancel"
+    echo
 
     local choice
-    prompt_user "Masukkan pilihan Anda: " choice
+    prompt_user "Enter your choice: " choice
 
-    if [[ ! "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -eq 0 ] || [ "$choice" -gt "${#backups[@]}" ]; then
+    if [[ "$choice" == "0" ]]; then
+        return 1
+    elif [[ "$choice" =~ ^[aA]$ ]]; then
+        # Restore all backups
+        return $(perform_restore_all_backups)
+    elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -gt 0 ] && [ "$choice" -le "${#backups[@]}" ]; then
+        # Continue with single backup restore
+        :
+    else
+        log_error "Invalid choice."
         return 1
     fi
     
     local backup_file="${backups[$((choice-1))]}"
     local target_node_id
-    prompt_user "Masukkan ID Node tujuan untuk restore: " target_node_id
-    [[ "$target_node_id" =~ ^[0-9]+$ ]] || { log_error "ID Node tidak valid."; return 1; }
+    prompt_user "Enter target Node ID for restore: " target_node_id
+    [[ "$target_node_id" =~ ^[0-9]+$ ]] || { log_error "Invalid Node ID."; return 1; }
 
-    if ! prompt_confirm "Ini akan MENIMPA semua data config untuk ID Node $target_node_id. Lanjutkan?"; then
+    if ! prompt_confirm "This will OVERWRITE all config data for Node ID $target_node_id. Continue?"; then
         return 1
     fi
 
     local target_dir="${CONFIG_DIR}/${target_node_id}"
-    log_info "Menghentikan kontainer yang menggunakan ID Node $target_node_id..."
+    log_info "Stopping container using Node ID $target_node_id..."
     local container_to_stop
     container_to_stop=$(docker ps -q --filter "name=nexus-node-" | xargs -r docker inspect --format '{{.Name}} {{range .Config.Env}}{{if eq (index (split . "=") 0) "NODE_ID"}}{{(index (split . "=") 1)}}{{end}}{{end}}' | awk -v id="$target_node_id" '$2==id {print $1}' | sed 's/^\///')
     
     if [ -n "$container_to_stop" ]; then
         if ! docker stop "$container_to_stop" >/dev/null; then
-            log_warn "Gagal menghentikan kontainer, proses restore tetap dilanjutkan."
+            log_warn "Failed to stop container, restore process will continue."
         else
-            log_info "Kontainer '$container_to_stop' dihentikan."
+            log_info "Container '$container_to_stop' stopped."
         fi
     fi
 
-    log_info "Memulihkan '$backup_file' ke '$target_dir'..."
+    log_info "Restoring '$backup_file' to '$target_dir'..."
     rm -rf "$target_dir"
     mkdir -p "$target_dir"
     if ! tar -xzf "$backup_file" -C "${CONFIG_DIR}"; then
-        log_error "Restore gagal."
+        log_error "Restore failed."
         return 1
     fi
-    log_success "Restore selesai. Silakan mulai ulang atau buat instance untuk ID Node $target_node_id."
+    log_success "Restore completed. Please restart or create instance for Node ID $target_node_id."
     return 0
 }
 
@@ -1594,7 +1763,6 @@ view_backup_details() {
         local backup_size=$(ls -lh "$backup" | awk '{print $5}')
         local backup_date
         
-        # Cross-platform date formatting
         if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
             backup_date=$(stat -c %Y "$backup" 2>/dev/null | xargs -I {} date -d @{} '+%Y-%m-%d %H:%M' 2>/dev/null || echo "Unknown")
         else
@@ -1607,7 +1775,6 @@ view_backup_details() {
     
     echo
     
-    # Calculate total backup size
     local total_size_bytes=0
     for backup in "${backups[@]}"; do
         local size_bytes
@@ -1615,7 +1782,6 @@ view_backup_details() {
         total_size_bytes=$((total_size_bytes + size_bytes))
     done
     
-    # Convert bytes to human readable
     local total_size_mb=$((total_size_bytes / 1024 / 1024))
     
     echo -e "  ${COLOR_YELLOW}SUMMARY${COLOR_RESET}"
@@ -1627,28 +1793,28 @@ view_backup_details() {
 start_multiple_instances() {
     local instance_count
     while true; do
-        prompt_user "Masukkan jumlah instance (atau [0] untuk kembali): " instance_count
-        if [[ "$instance_count" == "0" ]]; then log_info "Operasi dibatalkan."; return 1; fi
-        if [[ "$instance_count" =~ ^[1-9][0-9]*$ ]]; then break; else log_error "Jumlah tidak valid. Harap masukkan angka lebih dari 0."; fi
+        prompt_user "Enter number of instances (or [0] to return): " instance_count
+        if [[ "$instance_count" == "0" ]]; then log_info "Operation cancelled."; return 1; fi
+        if [[ "$instance_count" =~ ^[1-9][0-9]*$ ]]; then break; else log_error "Invalid number. Please enter a number greater than 0."; fi
     done
 
     for i in $(seq 1 "$instance_count"); do
         local node_id
         while true; do
-            prompt_user "Masukkan ID Node untuk instance #$i (atau [0] untuk batal): " node_id
-            if [[ "$node_id" == "0" ]]; then log_info "Operasi dibatalkan."; return 1; fi
-            if [[ "$node_id" =~ ^[0-9]+$ ]]; then break; else log_error "ID Node harus berupa angka."; fi
+            prompt_user "Enter Node ID for instance #$i (or [0] to cancel): " node_id
+            if [[ "$node_id" == "0" ]]; then log_info "Operation cancelled."; return 1; fi
+            if [[ "$node_id" =~ ^[0-9]+$ ]]; then break; else log_error "Node ID must be a number."; fi
         done
 
         local container_name="nexus-node-$i"
         if docker inspect "$container_name" &>/dev/null; then
-            if prompt_confirm "Kontainer '$container_name' sudah ada. Ganti?"; then
-                log_info "Menghapus kontainer lama..."
+            if prompt_confirm "Container '$container_name' already exists. Replace?"; then
+                log_info "Removing old container..."
                 if ! docker rm -f "$container_name" &>/dev/null; then
-                    log_warn "Gagal menghapus kontainer lama, mungkin sudah berhenti."
+                    log_warn "Failed to remove old container, it may already be stopped."
                 fi
             else
-                log_warn "Melewatkan instance $i."
+                log_warn "Skipping instance $i."
                 continue
             fi
         fi
@@ -1665,9 +1831,9 @@ add_one_instance() {
     local container_name="nexus-node-$next_idx"
     local node_id
     while true; do
-        prompt_user "Masukkan ID Node untuk instance baru (atau [0] untuk kembali): " node_id
-        if [[ "$node_id" == "0" ]]; then log_info "Operasi dibatalkan."; return 1; fi
-        if [[ "$node_id" =~ ^[0-9]+$ ]]; then break; else log_error "ID Node harus berupa angka."; fi
+        prompt_user "Enter Node ID for new instance (or [0] to return): " node_id
+        if [[ "$node_id" == "0" ]]; then log_info "Operation cancelled."; return 1; fi
+        if [[ "$node_id" =~ ^[0-9]+$ ]]; then break; else log_error "Node ID must be a number."; fi
     done
     _run_node_container "$container_name" "$node_id" "$DEFAULT_THREADS"
 }
@@ -1676,28 +1842,28 @@ add_one_instance() {
 # │ 🎮 FUNGSI KONTROL NODE - START, STOP, RESTART, DELETE             │
 # ╰───────────────────────────────────────────────────────────────────╯
 
-# Fungsi untuk menjalankan node yang sudah ada (tanpa membuat baru)
+# Function to start existing stopped nodes (without creating new ones)
 start_existing_nodes() {
     local containers
     mapfile -t containers < <(docker ps -a --filter "name=nexus-node-" --filter "status=exited" --format "{{.Names}}" | sort)
     
     if [ ${#containers[@]} -eq 0 ]; then
-        log_warn "Tidak ada node yang berhenti untuk dijalankan."
+        log_warn "No stopped nodes found to start."
         return 1
     fi
     
-    log_info "Pilih node yang akan dijalankan:"
+    log_info "Select node to start:"
     for i in "${!containers[@]}"; do
         local node_id
         node_id=$(docker inspect "${containers[i]}" --format '{{range .Config.Env}}{{if eq (index (split . "=") 0) "NODE_ID"}}{{(index (split . "=") 1)}}{{end}}{{end}}' 2>/dev/null || echo "N/A")
         echo -e "  ${COLOR_CYAN}[$((i+1))]${COLOR_RESET} ${containers[i]} (Node ID: ${node_id})"
     done
-    echo -e "  ${COLOR_CYAN}[a]${COLOR_RESET} Jalankan Semua"
-    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Kembali"
+    echo -e "  ${COLOR_CYAN}[a]${COLOR_RESET} Start All"
+    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Back"
     echo
     
     local choice
-    prompt_user "Pilihan: " choice
+    prompt_user "Choice: " choice
     
     local targets=()
     case "$choice" in
@@ -1707,47 +1873,47 @@ start_existing_nodes() {
             if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -gt 0 ] && [ "$choice" -le "${#containers[@]}" ]; then
                 targets=("${containers[$((choice-1))]}")
             else
-                log_error "Pilihan tidak valid."
+                log_error "Invalid choice."
                 return 1
             fi
             ;;
     esac
     
     for container in "${targets[@]}"; do
-        log_info "Menjalankan $container..."
+        log_info "Starting $container..."
         if docker start "$container" >/dev/null 2>&1; then
-            log_success "Container $container berhasil dijalankan."
+            log_success "Container $container started successfully."
         else
-            log_error "Gagal menjalankan container $container."
+            log_error "Failed to start container $container."
         fi
     done
     
-    log_success "Proses start node selesai."
+    log_success "Node start process completed."
     return 0
 }
 
-# Fungsi untuk menghentikan node yang berjalan
+# Function to stop running nodes
 stop_running_nodes() {
     local containers
     mapfile -t containers < <(docker ps --filter "name=nexus-node-" --format "{{.Names}}" | sort)
     
     if [ ${#containers[@]} -eq 0 ]; then
-        log_warn "Tidak ada node yang berjalan untuk dihentikan."
+        log_warn "No running nodes found to stop."
         return 1
     fi
     
-    log_info "Pilih node yang akan dihentikan:"
+    log_info "Select node to stop:"
     for i in "${!containers[@]}"; do
         local node_id
         node_id=$(docker inspect "${containers[i]}" --format '{{range .Config.Env}}{{if eq (index (split . "=") 0) "NODE_ID"}}{{(index (split . "=") 1)}}{{end}}{{end}}' 2>/dev/null || echo "N/A")
         echo -e "  ${COLOR_CYAN}[$((i+1))]${COLOR_RESET} ${containers[i]} (Node ID: ${node_id})"
     done
-    echo -e "  ${COLOR_CYAN}[a]${COLOR_RESET} Hentikan Semua"
-    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Kembali"
+    echo -e "  ${COLOR_CYAN}[a]${COLOR_RESET} Stop All"
+    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Back"
     echo
     
     local choice
-    prompt_user "Pilihan: " choice
+    prompt_user "Choice: " choice
     
     local targets=()
     case "$choice" in
@@ -1757,36 +1923,36 @@ stop_running_nodes() {
             if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -gt 0 ] && [ "$choice" -le "${#containers[@]}" ]; then
                 targets=("${containers[$((choice-1))]}")
             else
-                log_error "Pilihan tidak valid."
+                log_error "Invalid choice."
                 return 1
             fi
             ;;
     esac
     
     for container in "${targets[@]}"; do
-        log_info "Menghentikan $container..."
+        log_info "Stopping $container..."
         if docker stop "$container" >/dev/null 2>&1; then
-            log_success "Container $container berhasil dihentikan."
+            log_success "Container $container stopped successfully."
         else
-            log_error "Gagal menghentikan container $container."
+            log_error "Failed to stop container $container."
         fi
     done
     
-    log_success "Proses stop node selesai."
+    log_success "Node stop process completed."
     return 0
 }
 
-# Fungsi untuk restart node (modifikasi dari fungsi yang sudah ada)
+# Function to restart nodes (modified from existing function)
 restart_nodes() {
     local containers
     mapfile -t containers < <(docker ps -a --filter "name=nexus-node-" --format "{{.Names}}" | sort)
     
     if [ ${#containers[@]} -eq 0 ]; then
-        log_warn "Tidak ada instance yang ditemukan untuk di-restart."
+        log_warn "No instances found to restart."
         return 1
     fi
     
-    log_info "Pilih node untuk di-restart:"
+    log_info "Select node to restart:"
     for i in "${!containers[@]}"; do
         local status node_id
         status=$(docker inspect -f '{{.State.Status}}' "${containers[i]}")
@@ -1795,12 +1961,12 @@ restart_nodes() {
         if [[ "$status" == "running" ]]; then status_color="${COLOR_GREEN}"; fi
         echo -e "  ${COLOR_CYAN}[$((i+1))]${COLOR_RESET} ${containers[i]} (Node ID: ${node_id}) - Status: ${status_color}${status}${COLOR_RESET}"
     done
-    echo -e "  ${COLOR_CYAN}[a]${COLOR_RESET} Restart Semua"
-    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Kembali"
+    echo -e "  ${COLOR_CYAN}[a]${COLOR_RESET} Restart All"
+    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Back"
     echo
     
     local choice
-    prompt_user "Pilihan: " choice
+    prompt_user "Choice: " choice
     
     local targets=()
     case "$choice" in
@@ -1810,23 +1976,23 @@ restart_nodes() {
             if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -gt 0 ] && [ "$choice" -le "${#containers[@]}" ]; then
                 targets=("${containers[$((choice-1))]}")
             else
-                log_error "Pilihan tidak valid."
+                log_error "Invalid choice."
                 return 1
             fi
             ;;
     esac
     
     for container in "${targets[@]}"; do
-        log_info "Me-restart $container..."
+        log_info "Restarting $container..."
         
         # Try simple restart first
         if docker restart "$container" >/dev/null 2>&1; then
-            log_success "Container $container berhasil di-restart."
+            log_success "Container $container restarted successfully."
             continue
         fi
         
         # If restart fails, recreate the container
-        log_warn "Restart gagal, mencoba membuat ulang container $container..."
+        log_warn "Restart failed, trying to recreate container $container..."
         
         # Get container configuration
         local node_id threads wallet
@@ -1835,38 +2001,38 @@ restart_nodes() {
         wallet=$(docker inspect "$container" --format '{{range .Config.Env}}{{if eq (index (split . "=") 0) "WALLET_ADDRESS"}}{{(index (split . "=") 1)}}{{end}}{{end}}' 2>/dev/null || echo "")
         
         if [[ -z "$node_id" ]]; then
-            log_error "Tidak dapat membaca konfigurasi container $container. Lewati..."
+            log_error "Cannot read container $container configuration. Skipping..."
             continue
         fi
         
         # Remove broken container
-        log_info "Menghapus container rusak..."
+        log_info "Removing broken container..."
         docker rm -f "$container" >/dev/null 2>&1
         
         # Recreate container
-        log_info "Membuat ulang container dengan Node ID: $node_id"
+        log_info "Recreating container with Node ID: $node_id"
         if _run_node_container "$container" "$node_id" "$threads" "$wallet"; then
-            log_success "Container $container berhasil dibuat ulang dan dimulai."
+            log_success "Container $container successfully recreated and started."
         else
-            log_error "Gagal membuat ulang container $container."
+            log_error "Failed to recreate container $container."
         fi
     done
     
-    log_success "Proses restart selesai."
+    log_success "Restart process completed."
     return 0
 }
 
-# Fungsi untuk menghapus node containers (pengganti stop_all_nodes)
+# Function to delete node containers (replacement for stop_all_nodes)
 delete_all_nodes() {
     local containers
     mapfile -t containers < <(docker ps -a --filter "name=nexus-node-" --format "{{.Names}}" | sort)
     
     if [ ${#containers[@]} -eq 0 ]; then
-        log_warn "Tidak ada instance untuk dihapus."
+        log_warn "No instances found to delete."
         return 1
     fi
     
-    log_info "Pilih node yang akan dihapus:"
+    log_info "Select node to delete:"
     for i in "${!containers[@]}"; do
         local status node_id
         status=$(docker inspect -f '{{.State.Status}}' "${containers[i]}")
@@ -1875,12 +2041,12 @@ delete_all_nodes() {
         if [[ "$status" == "running" ]]; then status_color="${COLOR_GREEN}"; fi
         echo -e "  ${COLOR_CYAN}[$((i+1))]${COLOR_RESET} ${containers[i]} (Node ID: ${node_id}) - Status: ${status_color}${status}${COLOR_RESET}"
     done
-    echo -e "  ${COLOR_CYAN}[a]${COLOR_RESET} Hapus Semua"
-    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Kembali"
+    echo -e "  ${COLOR_CYAN}[a]${COLOR_RESET} Delete All"
+    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Back"
     echo
     
     local choice
-    prompt_user "Masukkan pilihan (pisahkan spasi untuk multiple): " choice
+    prompt_user "Enter choice (separate multiple with spaces): " choice
     
     if [[ "$choice" == "0" ]]; then
         return 1
@@ -1896,19 +2062,19 @@ delete_all_nodes() {
                     targets+=("${containers[$((num-1))]}")
                 fi
             else
-                log_error "Input tidak valid: '$num'. Harap masukkan nomor yang benar."
+                log_error "Invalid input: '$num'. Please enter correct numbers."
                 return 1
             fi
         done
     fi
     
     if [ ${#targets[@]} -eq 0 ]; then
-        log_warn "Tidak ada target yang dipilih untuk dihapus."
+        log_warn "No targets selected for deletion."
         return 1
     fi
     
     echo
-    log_warn "Anda akan menghapus node berikut secara PERMANEN:"
+    log_warn "You will PERMANENTLY delete the following nodes:"
     for target in "${targets[@]}"; do
         local node_id
         node_id=$(docker inspect "$target" --format '{{range .Config.Env}}{{if eq (index (split . "=") 0) "NODE_ID"}}{{(index (split . "=") 1)}}{{end}}{{end}}' 2>/dev/null || echo "N/A")
@@ -1916,25 +2082,25 @@ delete_all_nodes() {
     done
     echo
     
-    if ! prompt_confirm "Apakah Anda yakin ingin menghapus ${#targets[@]} container?"; then
-        log_info "Penghapusan dibatalkan."
+    if ! prompt_confirm "Are you sure you want to delete ${#targets[@]} container(s)?"; then
+        log_info "Deletion cancelled."
         return 1
     fi
     
     for target in "${targets[@]}"; do
-        log_info "Menghapus container '$target'..."
+        log_info "Deleting container '$target'..."
         if docker rm -f "$target" >/dev/null 2>&1; then
-            log_success "Container '$target' berhasil dihapus."
+            log_success "Container '$target' deleted successfully."
         else
-            log_error "Gagal menghapus container '$target'."
+            log_error "Failed to delete container '$target'."
         fi
     done
     
-    log_success "Proses penghapusan selesai."
+    log_success "Deletion process completed."
     return 0
 }
 
-# Menu terpadu untuk kontrol node dengan high performance
+# Integrated menu for node control with high performance
 node_control_menu() {
     while true; do
         clear
@@ -1976,10 +2142,10 @@ node_control_menu() {
         fi
         
         echo -e "  ${COLOR_CYAN}BASIC CONTROL OPTIONS${COLOR_RESET}"
-        echo -e "    ${COLOR_CYAN}1.${COLOR_RESET} ▶️ Start Node(s) - Jalankan node yang berhenti"
-        echo -e "    ${COLOR_CYAN}2.${COLOR_RESET} ⏹️ Stop Node(s) - Hentikan node yang berjalan"
-        echo -e "    ${COLOR_CYAN}3.${COLOR_RESET} 🔄 Restart Node(s) - Restart node (berjalan/berhenti)"
-        echo -e "    ${COLOR_CYAN}4.${COLOR_RESET} 🗑️ Delete Node(s) - Hapus container secara permanen"
+        echo -e "    ${COLOR_CYAN}1.${COLOR_RESET} ▶️ Start Node(s) - Start stopped nodes"
+        echo -e "    ${COLOR_CYAN}2.${COLOR_RESET} ⏹️ Stop Node(s) - Stop running nodes"
+        echo -e "    ${COLOR_CYAN}3.${COLOR_RESET} 🔄 Restart Node(s) - Restart nodes (running/stopped)"
+        echo -e "    ${COLOR_CYAN}4.${COLOR_RESET} 🗑️ Delete Node(s) - Permanently delete containers"
         echo
         echo -e "  ${COLOR_CYAN}ADVANCED OPTIONS${COLOR_RESET}"
         echo -e "    ${COLOR_CYAN}5.${COLOR_RESET} ⚡ High Performance Mode - Optimize and launch multiple instances"
@@ -2014,24 +2180,24 @@ delete_instances() {
     mapfile -t containers < <(docker ps -a --filter "name=nexus-node-" --format "{{.Names}}" | sort)
 
     if [ ${#containers[@]} -eq 0 ]; then
-        log_warn "Tidak ada instance yang ditemukan untuk dihapus."
+        log_warn "No instances found to delete."
         return 1
     fi
 
-    log_info "Pilih instance untuk dihapus:"
+    log_info "Select instance to delete:"
     for i in "${!containers[@]}"; do
         echo -e "  ${COLOR_CYAN}[$((i+1))]${COLOR_RESET} ${containers[i]}"
     done
     echo
-    echo -e "  ${COLOR_CYAN}[a]${COLOR_RESET} Hapus Semua"
-    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Batal"
+    echo -e "  ${COLOR_CYAN}[a]${COLOR_RESET} Delete All"
+    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Cancel"
     echo
 
     local choice
-    prompt_user "Masukkan nomor (pisahkan spasi), atau 'a' untuk semua: " choice
+    prompt_user "Enter number (separate with spaces), or 'a' for all: " choice
 
     if [[ "$choice" == "0" ]]; then
-        log_info "Penghapusan dibatalkan."
+        log_info "Deletion cancelled."
         return 1
     fi
 
@@ -2045,35 +2211,35 @@ delete_instances() {
                     targets_to_delete+=("${containers[$((num-1))]}")
                 fi
             else
-                log_error "Input tidak valid: '$num'. Harap masukkan nomor yang benar dari daftar."
+                log_error "Invalid input: '$num'. Please enter valid numbers from the list."
                 return 1
             fi
         done
     fi
 
     if [ ${#targets_to_delete[@]} -eq 0 ]; then
-        log_warn "Tidak ada target yang dipilih untuk dihapus."
+        log_warn "No targets selected for deletion."
         return 1
     fi
 
     echo
-    log_warn "Anda akan menghapus instance berikut secara permanen:"
+    log_warn "You will permanently delete the following instances:"
     for target in "${targets_to_delete[@]}"; do
         echo -e "  - ${COLOR_YELLOW}${target}${COLOR_RESET}"
     done
     echo
 
-    if prompt_confirm "Apakah Anda yakin ingin melanjutkan?"; then
+    if prompt_confirm "Are you sure you want to continue?"; then
         for target in "${targets_to_delete[@]}"; do
-            log_info "Menghapus kontainer '$target'..."
+            log_info "Deleting container '$target'..."
             if ! docker rm -f "$target" >/dev/null; then
-                log_error "Gagal menghapus kontainer '$target'."
+                log_error "Failed to delete container '$target'."
             else
-                log_success "Kontainer '$target' berhasil dihapus."
+                log_success "Container '$target' successfully deleted."
             fi
         done
     else
-        log_info "Penghapusan dibatalkan."
+        log_info "Deletion cancelled."
         return 1
     fi
     return 0
@@ -2084,15 +2250,15 @@ manage_instances_menu() {
         clear
         echo -e "${COLOR_CYAN}---[ Edit Instance ]---${COLOR_RESET}"
         echo
-        echo -e "  ${COLOR_CYAN}1.${COLOR_RESET} ➕   Tambah Satu Instance Baru"
-        echo -e "  ${COLOR_CYAN}2.${COLOR_RESET} ➕➕ Mulai Beberapa Instance"
-        echo -e "  ${COLOR_CYAN}3.${COLOR_RESET} 🗑️   Hapus Instance"
+        echo -e "  ${COLOR_CYAN}1.${COLOR_RESET} ➕   Add One New Instance"
+        echo -e "  ${COLOR_CYAN}2.${COLOR_RESET} ➕➕ Start Multiple Instances"
+        echo -e "  ${COLOR_CYAN}3.${COLOR_RESET} 🗑️   Delete Instance"
         echo
-        echo -e "  ${COLOR_CYAN}0.${COLOR_RESET} 🔙 Kembali ke Menu Utama"
+        echo -e "  ${COLOR_CYAN}0.${COLOR_RESET} 🔙 Back to Main Menu"
         echo
         
         local choice
-        prompt_user "Pilih Opsi: " choice
+        prompt_user "Select Option: " choice
 
         local should_pause=false
         case "$choice" in
@@ -2100,11 +2266,11 @@ manage_instances_menu() {
             2) start_multiple_instances && should_pause=true ;;
             3) delete_instances && should_pause=true ;;
             0) return ;;
-            *) log_error "Pilihan tidak valid." ; should_pause=true ;;
+            *) log_error "Invalid option." ; should_pause=true ;;
         esac
         
         if [ "$should_pause" = true ]; then
-            prompt_user "Tekan Enter untuk kembali ke menu edit..." "dummy_var"
+            prompt_user "Press Enter to return to edit menu..." "dummy_var"
         fi
     done
 }
@@ -2112,33 +2278,33 @@ manage_instances_menu() {
 restart_a_node() { 
     local containers; mapfile -t containers < <(docker ps -a --filter "name=nexus-node-" --format "{{.Names}}" | sort)
     if [ ${#containers[@]} -eq 0 ]; then
-        log_warn "Tidak ada instance yang ditemukan untuk di-restart."
+        log_warn "No instances found to restart."
         return 1
     fi
     
-    log_info "Pilih node untuk di-restart (termasuk yang berhenti):"
+    log_info "Select node to restart (including stopped ones):"
     for i in "${!containers[@]}"; do
         local status; status=$(docker inspect -f '{{.State.Status}}' "${containers[i]}");
         local status_color="${COLOR_YELLOW}"; if [[ "$status" == "running" ]]; then status_color="${COLOR_GREEN}"; fi
         echo -e "  [${COLOR_CYAN}$((i+1))${COLOR_RESET}] ${containers[i]} - Status: ${status_color}${status}${COLOR_RESET}"
     done
-    echo -e "  [${COLOR_CYAN}a${COLOR_RESET}] Semua"
-    echo -e "  [${COLOR_CYAN}0${COLOR_RESET}] Kembali"
+    echo -e "  [${COLOR_CYAN}a${COLOR_RESET}] All"
+    echo -e "  [${COLOR_CYAN}0${COLOR_RESET}] Back"
 
-    local choice; prompt_user "Pilihan: " choice
-    local targets=(); case "$choice" in 0) return 1 ;; [aA]) targets=("${containers[@]}");; *) if [[ "$choice" =~ ^[0-9]+$ && "$choice" -gt 0 && "$choice" -le "${#containers[@]}" ]]; then targets=("${containers[$((choice-1))]}"); else log_error "Pilihan tidak valid."; return 1; fi;; esac
+    local choice; prompt_user "Choice: " choice
+    local targets=(); case "$choice" in 0) return 1 ;; [aA]) targets=("${containers[@]}");; *) if [[ "$choice" =~ ^[0-9]+$ && "$choice" -gt 0 && "$choice" -le "${#containers[@]}" ]]; then targets=("${containers[$((choice-1))]}"); else log_error "Invalid choice."; return 1; fi;; esac
     
     for container in "${targets[@]}"; do
-        log_info "Me-restart/memulai $container..."
+        log_info "Restarting/starting $container..."
         
         # Try simple restart first
         if docker restart "$container" >/dev/null 2>&1; then
-            log_success "Container $container berhasil di-restart."
+            log_success "Container $container successfully restarted."
             continue
         fi
         
         # If restart fails, recreate the container
-        log_warn "Restart gagal, mencoba membuat ulang container $container..."
+        log_warn "Restart failed, trying to recreate container $container..."
         
         # Get container configuration
         local node_id threads wallet
@@ -2147,23 +2313,23 @@ restart_a_node() {
         wallet=$(docker inspect "$container" --format '{{range .Config.Env}}{{if eq (index (split . "=") 0) "WALLET_ADDRESS"}}{{(index (split . "=") 1)}}{{end}}{{end}}' 2>/dev/null || echo "")
         
         if [[ -z "$node_id" ]]; then
-            log_error "Tidak dapat membaca konfigurasi container $container. Lewati..."
+            log_error "Cannot read container configuration $container. Skipping..."
             continue
         fi
         
         # Remove broken container
-        log_info "Menghapus container rusak..."
+        log_info "Removing broken container..."
         docker rm -f "$container" >/dev/null 2>&1
         
         # Recreate container
-        log_info "Membuat ulang container dengan Node ID: $node_id"
+        log_info "Recreating container with Node ID: $node_id"
         if _run_node_container "$container" "$node_id" "$threads" "$wallet"; then
-            log_success "Container $container berhasil dibuat ulang dan dimulai."
+            log_success "Container $container successfully recreated and started."
         else
-            log_error "Gagal membuat ulang container $container."
+            log_error "Failed to recreate container $container."
         fi
     done
-    log_success "Proses restart selesai."
+    log_success "Restart process completed."
     return 0
 }
 
@@ -2185,8 +2351,8 @@ view_node_logs() {
         echo
         
         case "$choice" in
-            1) view_single_node_log && return 1 ;;
-            2) view_all_nodes_live && return 1 ;;
+            1) view_single_node_log ;; # Remove && return 1 to stay in menu
+            2) view_all_nodes_live ;; # Remove && return 1 to stay in menu
             3) view_activity_summary && prompt_user "Press Enter to continue..." "dummy_var" ;;
             4) search_logs && prompt_user "Press Enter to continue..." "dummy_var" ;;
             0) return ;;
@@ -2198,12 +2364,12 @@ view_node_logs() {
 view_single_node_log() {
     while true; do
         local container
-        if ! _select_container "Pilih kontainer untuk melihat log:" container; then 
+        if ! _select_container "Select container to view logs:" container; then
             return 1
         fi
         
         clear
-        echo -e "${COLOR_BLUE}╭─ 📜 Log Options untuk: ${COLOR_GREEN}$container${COLOR_BLUE} ─╮${COLOR_RESET}"
+        echo -e "${COLOR_BLUE}╭─ 📜 Log Options for: ${COLOR_GREEN}$container${COLOR_BLUE} ─╮${COLOR_RESET}"
         echo
         echo -e "  ${COLOR_CYAN}1.${COLOR_RESET} 🔄 View Live Logs (Follow Mode)"
         echo -e "  ${COLOR_CYAN}2.${COLOR_RESET} 📄 View Recent Logs (Static)"
@@ -2219,7 +2385,7 @@ view_single_node_log() {
         case "$log_choice" in
             1)
                 clear
-                echo -e "${COLOR_BLUE}╭─ 📜 Live Log untuk: ${COLOR_GREEN}$container ${COLOR_CYAN}(Press 'q' then Enter to quit) ─╮${COLOR_RESET}"
+                echo -e "${COLOR_BLUE}╭─ 📜 Live Log for: ${COLOR_GREEN}$container ${COLOR_CYAN}(Press 'q' then Enter to quit) ─╮${COLOR_RESET}"
                 echo -e "${COLOR_YELLOW}💡 Tip: Type 'q' and press Enter to return to menu safely${COLOR_RESET}"
                 echo
                 
@@ -2268,7 +2434,6 @@ view_single_node_log() {
                     fi
                 done
                 
-                # Cleanup
                 kill $docker_pid $reader_pid 2>/dev/null || true
                 rm -f "$temp_fifo" 2>/dev/null || true
                 echo -e "\n${COLOR_YELLOW}📜 Live log viewer stopped.${COLOR_RESET}"
@@ -2276,7 +2441,7 @@ view_single_node_log() {
                 ;;
             2)
                 clear
-                echo -e "${COLOR_BLUE}╭─ 📄 Recent Logs untuk: ${COLOR_GREEN}$container${COLOR_BLUE} ─╮${COLOR_RESET}"
+                echo -e "${COLOR_BLUE}╭─ 📄 Recent Logs for: ${COLOR_GREEN}$container${COLOR_BLUE} ─╮${COLOR_RESET}"
                 echo
                 
                 # Show last 100 lines of logs
@@ -2323,7 +2488,7 @@ view_single_node_log() {
                 fi
                 
                 clear
-                echo -e "${COLOR_BLUE}╭─ 📄 Last $num_lines lines untuk: ${COLOR_GREEN}$container${COLOR_BLUE} ─╮${COLOR_RESET}"
+                echo -e "${COLOR_BLUE}╭─ 📄 Last $num_lines lines for: ${COLOR_GREEN}$container${COLOR_BLUE} ─╮${COLOR_RESET}"
                 echo
                 
                 local logs
@@ -3789,7 +3954,7 @@ docker_prune() {
 }
 
 # ╭───────────────────────────────────────────────────────────────────╮
-# │ 📊 DASHBOARD & LOOP UTAMA (Tampilan Minimalis Baru)               │
+# │ 📊 DASHBOARD & MAIN LOOP (New Minimalist Display)                 │
 # ╰───────────────────────────────────────────────────────────────────╯
 
 # Centralized task counting function for consistency
@@ -4014,12 +4179,29 @@ display_dashboard() {
     running_count=${#running_containers_temp[@]}
     stopped_count=${#stopped_containers_temp[@]}
     
-    # Calculate total tasks across all nodes using centralized function
-    local total_tasks=0
-    local task_display="0"
-    local task_color="${COLOR_PURPLE}"
+# Calculate total tasks across all nodes using centralized function
+local total_tasks=0
+local task_display="0"
+local task_color="${COLOR_PURPLE}"
+
+# Get Docker status for system display
+get_docker_status() {
+    if ! command -v docker &>/dev/null; then
+        echo "${COLOR_RED}Not Installed${COLOR_RESET}"
+        return
+    fi
     
-    if [[ $running_count -gt 0 ]]; then
+    if docker info &>/dev/null 2>&1; then
+        echo "${COLOR_GREEN}Running${COLOR_RESET}"
+    else
+        echo "${COLOR_YELLOW}Not Running${COLOR_RESET}"
+    fi
+}
+
+local docker_status
+docker_status=$(get_docker_status)
+
+if [[ $running_count -gt 0 ]]; then
         # Sum up tasks from all running containers using consistent method
         for container in "${running_containers_temp[@]}"; do
             if [[ -n "$container" ]]; then
@@ -4051,8 +4233,8 @@ display_dashboard() {
         task_color="${COLOR_PURPLE}"
     fi
     
-    # Enhanced system info with device RAM and total tasks
-    echo -e "   ${COLOR_PURPLE}💻 System:${COLOR_RESET} ${COLOR_GREEN}${total_cores} cores${COLOR_RESET} | ${ram_color}${used_ram_gb}/${total_ram_gb}GB RAM${COLOR_RESET} | ${task_color}${task_display} tasks${COLOR_RESET}"
+    # Enhanced system info with device RAM, total tasks, and Docker status
+    echo -e "   ${COLOR_PURPLE}💻 System:${COLOR_RESET} ${COLOR_GREEN}${total_cores} cores${COLOR_RESET} | ${ram_color}${used_ram_gb}/${total_ram_gb}GB RAM${COLOR_RESET} | ${task_color}${task_display} tasks${COLOR_RESET} | ${COLOR_CYAN}🐳 Docker:${COLOR_RESET} ${docker_status}"
     
     echo
     
@@ -4091,7 +4273,7 @@ display_dashboard() {
         # Display running containers first
         for container in "${running_containers[@]}"; do
             if [ -n "$container" ]; then
-                # Get stats dengan timeout dan fallback yang lebih baik
+                # Get stats with timeout and better fallback
                 local stats cpu_perc mem_usage node_id uptime tasks
                 
                 # Fast Docker stats - simplified for performance
@@ -4323,6 +4505,51 @@ verify_docker_installation() {
     return 1
 }
 
+# Auto-refresh countdown function with live timer
+show_auto_refresh_countdown() {
+    local refresh_interval="$1"
+    local running_count="$2"
+    local choice_var="$3"  # Variable name to store user choice
+    
+    local countdown=$refresh_interval
+    local user_input=""
+    
+    # Display initial countdown line
+    while [[ $countdown -gt 0 ]]; do
+        # Clear the current line and show countdown
+        printf "\r${COLOR_CYAN}ℹ️  Auto-refresh:${COLOR_RESET} ${COLOR_GREEN}ON${COLOR_RESET} (${COLOR_YELLOW}%ds${COLOR_RESET}) | Running nodes: ${COLOR_GREEN}%d${COLOR_RESET} | ${COLOR_YELLOW}Press any key for menu${COLOR_RESET}" "$countdown" "$running_count"
+        
+        # Check for user input (non-blocking)
+        if read -t 1 -n 1 user_input 2>/dev/null; then
+            # User pressed a key
+            printf "\n\n"
+            printf "${COLOR_PURPLE} ❔ Question    >${COLOR_RESET} Choose Option: "
+            
+            # If user pressed Enter or just single char, get full input
+            if [[ "$user_input" == $'\n' || "$user_input" == "" ]]; then
+                # User pressed Enter - treat as empty choice (refresh)
+                eval "$choice_var=''"
+            else
+                # User started typing - get the rest of input
+                local rest_input
+                read -r rest_input 2>/dev/null
+                eval "$choice_var='$user_input$rest_input'"
+            fi
+            
+            echo
+            return 0  # User interrupted countdown
+        fi
+        
+        ((countdown--))
+    done
+    
+    # Countdown finished - auto refresh
+    printf "\n\n"
+    log_info "🔄 Auto-refreshing dashboard..."
+    sleep 1
+    return 1  # Timeout reached
+}
+
 # Enhanced main function with first-run experience
 main() {
     # Display welcome screen for first-time users
@@ -4359,21 +4586,15 @@ main() {
         
         local choice
         if [[ "${NEXUS_AUTO_REFRESH:-true}" == "true" && $running_count -gt 0 ]]; then
-            # Auto-refresh mode - show countdown timer
+            # Auto-refresh mode - show live countdown timer
             local refresh_interval="${NEXUS_REFRESH_INTERVAL:-180}"
-            echo -e "${COLOR_CYAN}ℹ️  Auto-refresh:${COLOR_RESET} ${COLOR_GREEN}ON${COLOR_RESET} (${refresh_interval}s) | Running nodes: ${COLOR_GREEN}$running_count${COLOR_RESET} | ${COLOR_YELLOW}Press any key for menu${COLOR_RESET}"
-            echo
+            echo  # Add spacing before countdown
             
-            # Read with timeout for auto-refresh
-            if read -t "$refresh_interval" -rp "$(echo -e "${COLOR_PURPLE} ❔ Question    >${COLOR_RESET} Pilih Opsi: ")" choice 2>/dev/null; then
-                echo
-            else
-                # Timeout reached - auto refresh
-                echo
-                log_info "🔄 Auto-refreshing dashboard..."
-                sleep 1
-                continue
+            # Use countdown function - if it returns 1 (timeout), continue to refresh
+            if ! show_auto_refresh_countdown "$refresh_interval" "$running_count" "choice"; then
+                continue  # Auto-refresh timeout reached
             fi
+            # If function returns 0, user interrupted - choice variable is set
         else
             # Manual refresh mode
             if [[ "${NEXUS_AUTO_REFRESH:-true}" != "true" ]]; then
@@ -4382,7 +4603,7 @@ main() {
                 echo -e "${COLOR_CYAN}ℹ️  Auto-refresh:${COLOR_RESET} ${COLOR_YELLOW}IDLE${COLOR_RESET} (no running nodes)"
             fi
             echo
-            prompt_user "Pilih Opsi: " choice
+            prompt_user "Choose Option: " choice
             echo
         fi
 
@@ -4390,24 +4611,24 @@ main() {
         case "$choice" in
             1) build_image_interactive && should_pause=true ;;
             2) build_image_latest && should_pause=true ;;
-            3) manage_instances_menu ;; # Menu ini menangani jeda sendiri
+            3) manage_instances_menu ;; # This menu handles its own pause
             4) node_control_menu ;; # Node Control Center menu with High Performance integrated
             5) environment_config_menu ;; # Environment & Config menu
-            6) view_node_logs ;; # Menu ini tidak perlu jeda
+            6) view_node_logs ;; # This menu doesn't need pause
             7) backup_restore_menu ;; # Unified Backup & Restore menu
             [aA]) docker_prune && should_pause=true ;;
-            0) log_info "Keluar dari program."; exit 0 ;;
+            0) log_info "Exiting program."; exit 0 ;;
             "") 
                 # Empty choice (just Enter pressed) - refresh dashboard
                 log_info "🔄 Refreshing dashboard..." 
                 sleep 1  # Brief pause to show refresh message
                 ;;
-            *) log_error "Opsi tidak valid. Silakan coba lagi." ; should_pause=true ;;
+            *) log_error "Invalid option. Please try again." ; should_pause=true ;;
         esac
         
         if [ "$should_pause" = true ]; then
           echo
-          prompt_user "Tekan Enter untuk melanjutkan..." "dummy_var"
+          prompt_user "Press Enter to continue..." "dummy_var"
         fi
     done
 }
