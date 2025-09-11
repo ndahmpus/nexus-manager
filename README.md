@@ -41,7 +41,7 @@ Powerful bash script for managing multiple Nexus node containers with Docker. Re
 │                              📋 MANAGEMENT MENU                             │
 ╰─────────────────────────────────────────────────────────────────────────────╯
 
-  [1] 🏠️Build/Update Image            [2] 🔄 Update CLI
+  [1] 🏠️Build/Update Image             [2] 🔄 Update CLI
   [3] 📦 Manage Instances              [4] 🎮 Node Control
   [5] 🌐 Environment Config            [6] 📜 View Logs
   [7] 💿 Backup & Restore              [A] 🧹 Docker Cleanup
