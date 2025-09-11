@@ -29,6 +29,10 @@ NEXUS_CPU_LIMIT=""
 NEXUS_AUTO_RESTART="false"
 NEXUS_AUTO_REFRESH="true"
 NEXUS_REFRESH_INTERVAL="180"
+NEXUS_WITH_BACKGROUND="false"
+NEXUS_MAX_TASKS=""
+NEXUS_MAX_DIFFICULTY=""
+NEXUS_HEADLESS="true"
 
 EOF
     fi
@@ -41,6 +45,10 @@ EOF
     export NEXUS_AUTO_RESTART="${NEXUS_AUTO_RESTART:-false}"
     export NEXUS_AUTO_REFRESH="${NEXUS_AUTO_REFRESH:-true}"
     export NEXUS_REFRESH_INTERVAL="${NEXUS_REFRESH_INTERVAL:-180}"
+    export NEXUS_WITH_BACKGROUND="${NEXUS_WITH_BACKGROUND:-false}"
+    export NEXUS_MAX_TASKS="${NEXUS_MAX_TASKS:-}"
+    export NEXUS_MAX_DIFFICULTY="${NEXUS_MAX_DIFFICULTY:-}"
+    export NEXUS_HEADLESS="${NEXUS_HEADLESS:-true}"
 }
 
 # Create official nexus config for container
@@ -282,13 +290,13 @@ FROM alpine:3.22.0
 # Install dependencies
 RUN apk update && apk add --no-cache curl ca-certificates jq
 
-# Download nexus-cli binary directly based on architecture
-RUN ARCH=$(uname -m) && \
-    case "$ARCH" in \
-        x86_64) NEXUS_URL="https://github.com/nexus-xyz/nexus-cli/releases/download/v0.10.10/nexus-network-linux-x86_64" ;; \
-        aarch64|arm64) NEXUS_URL="https://github.com/nexus-xyz/nexus-cli/releases/download/v0.10.10/nexus-network-linux-arm64" ;; \
-        *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
-    esac && \
+# Download nexus-cli binary directly based on architecture (v0.10.11)
+RUN ARCH=$(uname -m) && \\
+    case "$ARCH" in \\
+        x86_64) NEXUS_URL="https://github.com/nexus-xyz/nexus-cli/releases/download/v0.10.11/nexus-network-linux-x86_64" ;; \\
+        aarch64|arm64) NEXUS_URL="https://github.com/nexus-xyz/nexus-cli/releases/download/v0.10.11/nexus-network-linux-arm64" ;; \\
+        *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \\
+    esac
     echo "Downloading from: $NEXUS_URL" && \
     curl -L -o /usr/local/bin/nexus-cli "$NEXUS_URL" && \
     chmod +x /usr/local/bin/nexus-cli && \
@@ -347,22 +355,44 @@ echo "📝 Log: ${LOG_FILE}"
 echo "🌐 Binary: $(nexus-cli --version 2>/dev/null || echo 'nexus-cli not found')"
 
 # Build command arguments
-CMD_ARGS="start --headless"
+CMD_ARGS="start"
+
+# Add headless flag if enabled (default: true for lighter Docker performance)
+if [ "${HEADLESS:-true}" = "true" ]; then
+    CMD_ARGS="$CMD_ARGS --headless"
+fi
 
 if [ -n "$NODE_ID" ]; then
     CMD_ARGS="$CMD_ARGS --node-id $NODE_ID"
 fi
 
+# DEPRECATED in v0.10.11: max-threads will be ignored but we keep for compatibility
 if [ -n "$MAX_THREADS" ]; then
-    CMD_ARGS="$CMD_ARGS --max-threads $MAX_THREADS"
+    echo "⚠️ Warning: --max-threads is DEPRECATED in v0.10.11 and will be ignored"
+    # CMD_ARGS="$CMD_ARGS --max-threads $MAX_THREADS"  # Commented out as deprecated
 fi
 
 if [ -n "$ORCHESTRATOR_URL" ]; then
     CMD_ARGS="$CMD_ARGS --orchestrator-url $ORCHESTRATOR_URL"
 fi
 
+# NEW v0.10.11: Support for max difficulty override
+if [ -n "$MAX_DIFFICULTY" ]; then
+    CMD_ARGS="$CMD_ARGS --max-difficulty $MAX_DIFFICULTY"
+fi
+
 if [ "$CHECK_MEMORY" = "true" ]; then
     CMD_ARGS="$CMD_ARGS --check-memory"
+fi
+
+# NEW: Support for background colors (v0.10.10)
+if [ "$WITH_BACKGROUND" = "true" ]; then
+    CMD_ARGS="$CMD_ARGS --with-background"
+fi
+
+# NEW: Support for max tasks limit (v0.10.10)
+if [ -n "$MAX_TASKS" ]; then
+    CMD_ARGS="$CMD_ARGS --max-tasks $MAX_TASKS"
 fi
 
 # Create nexus config if wallet provided
@@ -469,6 +499,25 @@ _run_node_container() {
     if [[ -n "$final_wallet" ]]; then
         env_vars+=("-e" "WALLET_ADDRESS=$final_wallet")
     fi
+    
+    # NEW v0.10.10: Support for background colors
+    if [[ "${NEXUS_WITH_BACKGROUND:-false}" == "true" ]]; then
+        env_vars+=("-e" "WITH_BACKGROUND=true")
+    fi
+    
+    # NEW v0.10.10: Support for max tasks limit
+    if [[ -n "${NEXUS_MAX_TASKS:-}" ]]; then
+        env_vars+=("-e" "MAX_TASKS=${NEXUS_MAX_TASKS}")
+    fi
+    
+    # NEW v0.10.11: Support for max difficulty override
+    if [[ -n "${NEXUS_MAX_DIFFICULTY:-}" ]]; then
+        env_vars+=("-e" "MAX_DIFFICULTY=${NEXUS_MAX_DIFFICULTY}")
+    fi
+    
+    # Headless mode configuration (default: true for lighter Docker)
+    local headless_mode="${NEXUS_HEADLESS:-true}"
+    env_vars+=("-e" "HEADLESS=${headless_mode}")
 
     # Resource limits - ensure clean values
     local resource_args=()
@@ -563,6 +612,11 @@ environment_config_menu() {
         echo -e "    Auto Restart     : ${COLOR_GREEN}${NEXUS_AUTO_RESTART:-false}${COLOR_RESET}"
         echo -e "    Auto Refresh     : ${COLOR_GREEN}${NEXUS_AUTO_REFRESH:-true}${COLOR_RESET}"
         echo -e "    Refresh Interval : ${COLOR_GREEN}${NEXUS_REFRESH_INTERVAL:-180}s${COLOR_RESET}"
+        echo -e "    With Background  : ${COLOR_GREEN}${NEXUS_WITH_BACKGROUND:-false}${COLOR_RESET}"
+        echo -e "    Max Tasks Limit  : ${COLOR_GREEN}${NEXUS_MAX_TASKS:-unlimited}${COLOR_RESET}"
+        echo -e "    Max Difficulty   : ${COLOR_GREEN}${NEXUS_MAX_DIFFICULTY:-auto}${COLOR_RESET}"
+        echo -e "    Headless Mode    : ${COLOR_GREEN}${NEXUS_HEADLESS:-true}${COLOR_RESET}"
+        echo -e "    Default Threads  : ${COLOR_YELLOW}${NEXUS_DEFAULT_THREADS:-4} (DEPRECATED)${COLOR_RESET}"
         echo
         echo -e "  ${COLOR_CYAN}CONFIGURATION OPTIONS${COLOR_RESET}"
         echo -e "    ${COLOR_CYAN}1.${COLOR_RESET} 🌐 Change Environment (production/devnet/custom)"
@@ -573,7 +627,11 @@ environment_config_menu() {
         echo -e "    ${COLOR_CYAN}6.${COLOR_RESET} 🧠 Toggle Memory Checking"
         echo -e "    ${COLOR_CYAN}7.${COLOR_RESET} 🔄 Toggle Auto Restart"
         echo -e "    ${COLOR_CYAN}8.${COLOR_RESET} 🔄 Auto-Refresh Settings"
-        echo -e "    ${COLOR_CYAN}9.${COLOR_RESET} 📄 View Full Config File"
+        echo -e "    ${COLOR_CYAN}9.${COLOR_RESET} 🎨 Toggle Background Colors"
+        echo -e "    ${COLOR_CYAN}10.${COLOR_RESET} 🔢 Set Max Tasks Limit"
+        echo -e "    ${COLOR_CYAN}11.${COLOR_RESET} 🎯 Set Max Difficulty"
+        echo -e "    ${COLOR_CYAN}12.${COLOR_RESET} 📺 Toggle Headless Mode"
+        echo -e "    ${COLOR_CYAN}13.${COLOR_RESET} 📄 View Full Config File"
         echo
         echo -e "    ${COLOR_CYAN}0.${COLOR_RESET} 🔙 Back to Main Menu"
         echo
@@ -592,7 +650,11 @@ environment_config_menu() {
             6) toggle_memory_checking && should_pause=true ;;
             7) toggle_auto_restart && should_pause=true ;;
             8) auto_refresh_settings && should_pause=true ;;
-            9) view_config_file && should_pause=true ;;
+            9) toggle_background_colors && should_pause=true ;;
+            10) set_max_tasks_limit && should_pause=true ;;
+            11) set_max_difficulty && should_pause=true ;;
+            12) toggle_headless_mode && should_pause=true ;;
+            13) view_config_file && should_pause=true ;;
             0) return ;;
             *) log_error "Invalid option." ; should_pause=true ;;
         esac
@@ -872,6 +934,131 @@ quick_refresh_settings() {
             return 1
             ;;
     esac
+}
+
+# NEW v0.10.10: Toggle background colors for dashboard
+toggle_background_colors() {
+    local current="${NEXUS_WITH_BACKGROUND:-false}"
+    
+    if [[ "$current" == "true" ]]; then
+        update_config_value "NEXUS_WITH_BACKGROUND" "false"
+        NEXUS_WITH_BACKGROUND="false"
+        log_success "Background colors disabled"
+    else
+        update_config_value "NEXUS_WITH_BACKGROUND" "true"
+        NEXUS_WITH_BACKGROUND="true"
+        log_success "Background colors enabled"
+    fi
+    
+    log_info "Note: This affects the Nexus CLI dashboard appearance inside containers"
+}
+
+# NEW v0.10.11: Set maximum difficulty override
+set_max_difficulty() {
+    local current_difficulty="${NEXUS_MAX_DIFFICULTY:-}"
+    log_info "Current max difficulty: ${current_difficulty:-auto (self-regulating)}"
+    log_info "Available difficulty levels in v0.10.11:"
+    echo -e "  ${COLOR_GREEN}[1]${COLOR_RESET} SMALL - Lowest difficulty for testing"
+    echo -e "  ${COLOR_GREEN}[2]${COLOR_RESET} SMALL_MEDIUM - Light computational load"
+    echo -e "  ${COLOR_GREEN}[3]${COLOR_RESET} MEDIUM - Balanced difficulty"
+    echo -e "  ${COLOR_GREEN}[4]${COLOR_RESET} LARGE - Higher computational load"
+    echo -e "  ${COLOR_GREEN}[5]${COLOR_RESET} EXTRA_LARGE - Maximum difficulty"
+    echo -e "  ${COLOR_GREEN}[0]${COLOR_RESET} AUTO - Let Nexus self-regulate (recommended)"
+    echo
+    log_info "Note: v0.10.11 introduces self-regulating difficulty. AUTO is recommended."
+    echo
+    
+    local choice
+    prompt_user "Select difficulty level (0-5): " choice
+    
+    local new_difficulty=""
+    case "$choice" in
+        0) new_difficulty="" ;;
+        1) new_difficulty="SMALL" ;;
+        2) new_difficulty="SMALL_MEDIUM" ;;
+        3) new_difficulty="MEDIUM" ;;
+        4) new_difficulty="LARGE" ;;
+        5) new_difficulty="EXTRA_LARGE" ;;
+        *) 
+            log_error "Invalid choice. Please select 0-5."
+            return 1
+            ;;
+    esac
+    
+    update_config_value "NEXUS_MAX_DIFFICULTY" "$new_difficulty"
+    NEXUS_MAX_DIFFICULTY="$new_difficulty"
+    
+    if [[ -n "$new_difficulty" ]]; then
+        log_success "Max difficulty set to: $new_difficulty"
+        log_info "Containers will request tasks with maximum difficulty: $new_difficulty"
+    else
+        log_success "Max difficulty set to AUTO (self-regulating)"
+        log_info "Containers will use Nexus self-regulating difficulty (recommended)"
+    fi
+    
+    log_warn "Note: This overrides the new self-regulating feature in v0.10.11"
+}
+
+# Toggle headless mode for lighter Docker performance
+toggle_headless_mode() {
+    local current="${NEXUS_HEADLESS:-true}"
+    
+    log_info "Current headless mode: ${current}"
+    log_info "Headless mode options:"
+    echo -e "  ${COLOR_GREEN}true${COLOR_RESET}  - Run without terminal UI (recommended for Docker - lighter)"
+    echo -e "  ${COLOR_GREEN}false${COLOR_RESET} - Run with terminal UI (heavier, shows dashboard)"
+    echo
+    
+    if [[ "$current" == "true" ]]; then
+        if prompt_confirm "Currently HEADLESS (lightweight). Switch to UI mode (heavier)?"; then
+            update_config_value "NEXUS_HEADLESS" "false"
+            NEXUS_HEADLESS="false"
+            log_success "Headless mode disabled - containers will show terminal UI"
+            log_warn "Note: This makes containers heavier but shows Nexus dashboard"
+        else
+            log_info "Keeping headless mode enabled (lightweight)"
+        fi
+    else
+        if prompt_confirm "Currently UI MODE (heavier). Switch to headless (lightweight)?"; then
+            update_config_value "NEXUS_HEADLESS" "true"
+            NEXUS_HEADLESS="true"
+            log_success "Headless mode enabled - containers run lightweight without UI"
+            log_info "Recommended: This makes Docker containers more efficient"
+        else
+            log_info "Keeping UI mode enabled (shows dashboard)"
+        fi
+    fi
+}
+
+# NEW v0.10.10: Set maximum tasks limit
+set_max_tasks_limit() {
+    local current_limit="${NEXUS_MAX_TASKS:-}"
+    log_info "Current max tasks limit: ${current_limit:-unlimited}"
+    log_info "Set a limit to automatically exit after processing N tasks"
+    log_info "Examples: 100, 500, 1000 (or leave empty for unlimited)"
+    echo
+    
+    local new_limit
+    prompt_user "Enter max tasks limit (or press Enter for unlimited): " new_limit
+    
+    # Validate input
+    if [[ -n "$new_limit" ]]; then
+        if [[ ! "$new_limit" =~ ^[0-9]+$ ]] || [[ $new_limit -lt 1 ]]; then
+            log_error "Invalid input. Please enter a positive number or leave empty."
+            return 1
+        fi
+    fi
+    
+    update_config_value "NEXUS_MAX_TASKS" "$new_limit"
+    NEXUS_MAX_TASKS="$new_limit"
+    
+    if [[ -n "$new_limit" ]]; then
+        log_success "Max tasks limit set to: $new_limit"
+        log_info "Containers will exit after processing $new_limit tasks"
+    else
+        log_success "Max tasks limit cleared (unlimited)"
+        log_info "Containers will run indefinitely"
+    fi
 }
 
 view_config_file() {
@@ -2321,10 +2508,12 @@ view_activity_summary() {
             local tasks_count
             local last_activity
             
-            # Safe counting with proper fallback
+            # Use centralized task counting for consistency
+            tasks_count=$(_calculate_container_tasks "$container" "24h")
+            
+            # Safe counting for other metrics
             proofs_count=$(echo "$logs" | grep -c "Proof submitted successfully" 2>/dev/null || echo "0")
             errors_count=$(echo "$logs" | grep -c -i "error\|failed" 2>/dev/null || echo "0")
-            tasks_count=$(echo "$logs" | grep -c "Got task\|Task completed" 2>/dev/null || echo "0")
             last_activity=$(echo "$logs" | tail -1 | head -c 80 2>/dev/null || echo "No recent activity")
             
             # Validate numbers before arithmetic
@@ -2411,120 +2600,1272 @@ search_logs() {
     printf "${COLOR_BLUE}%50s${COLOR_RESET}\n" | tr ' ' '='
 }
 
-docker_prune() {
-    log_warn "Perintah ini akan menghapus semua kontainer yang berhenti,"
-    log_warn "semua image yang tidak terpakai, dan semua cache build."
-    if prompt_confirm "Apakah Anda yakin ingin melanjutkan?"; then
-        log_info "Memulai pembersihan Docker yang komprehensif..."
-        
-        # Step 1: Stop all nexus containers first
-        local running_containers
-        running_containers=$(docker ps -q --filter "name=nexus-node-" 2>/dev/null || echo "")
-        if [[ -n "$running_containers" ]]; then
-            log_info "Menghentikan semua container nexus yang sedang berjalan..."
-            if ! echo "$running_containers" | xargs docker stop >/dev/null 2>&1; then
-                log_warn "Beberapa container mungkin gagal dihentikan"
-            else
-                log_success "Container nexus berhasil dihentikan"
-            fi
-        fi
-        
-        # Step 2: Remove all containers (stopped and running)
-        local all_containers
-        all_containers=$(docker ps -aq --filter "name=nexus-node-" 2>/dev/null || echo "")
-        if [[ -n "$all_containers" ]]; then
-            log_info "Menghapus semua container nexus..."
-            if ! echo "$all_containers" | xargs docker rm -f >/dev/null 2>&1; then
-                log_warn "Beberapa container mungkin gagal dihapus"
-            else
-                log_success "Container nexus berhasil dihapus"
-            fi
-        fi
-        
-        # Step 3: Remove all stopped containers
-        log_info "Membersihkan container yang berhenti..."
-        if docker container prune -f >/dev/null 2>&1; then
-            log_success "Container yang berhenti berhasil dibersihkan"
-        else
-            log_warn "Gagal membersihkan beberapa container"
-        fi
-        
-        # Step 4: Remove unused images  
-        log_info "Menghapus image yang tidak terpakai..."
-        if docker image prune -a -f >/dev/null 2>&1; then
-            log_success "Image yang tidak terpakai berhasil dihapus"
-        else
-            log_warn "Gagal menghapus beberapa image"
-        fi
-        
-        # Step 5: Remove build cache
-        log_info "Membersihkan build cache..."
-        if docker builder prune -a -f >/dev/null 2>&1; then
-            log_success "Build cache berhasil dibersihkan"
-        else
-            log_warn "Gagal membersihkan build cache"
-        fi
-        
-        # Step 6: Remove unused volumes
-        log_info "Membersihkan volume yang tidak terpakai..."
-        if docker volume prune -f >/dev/null 2>&1; then
-            log_success "Volume yang tidak terpakai berhasil dihapus"
-        else
-            log_warn "Gagal menghapus beberapa volume"
-        fi
-        
-        # Step 7: Remove unused networks
-        log_info "Membersihkan network yang tidak terpakai..."
-        if docker network prune -f >/dev/null 2>&1; then
-            log_success "Network yang tidak terpakai berhasil dihapus"
-        else
-            log_warn "Gagal menghapus beberapa network"
-        fi
-        
-        # Step 8: Final comprehensive cleanup
-        log_info "Menjalankan pembersihan sistem menyeluruh..."
-        if docker system prune -a -f >/dev/null 2>&1; then
-            log_success "Pembersihan sistem menyeluruh berhasil"
-        else
-            log_warn "Pembersihan sistem menyeluruh selesai dengan peringatan"
-        fi
-        
-        # Show final status
-        log_info "Menampilkan status akhir sistem Docker..."
-        echo
-        docker system df || log_warn "Gagal menampilkan status sistem"
-        echo
-        
-        log_success "🧹 Pembersihan Docker selesai! Sistem sudah bersih."
-        
-        # Clean up nexus-manager specific directories if they exist
-        if [[ -d "$LOG_DIR" ]]; then
-            log_info "Membersihkan log directory..."
-            rm -rf "${LOG_DIR}"/* 2>/dev/null || true
-        fi
-        
-        if [[ -d "$HEALTH_CHECK_DIR" ]]; then
-            log_info "Membersihkan health check directory..."
-            rm -rf "${HEALTH_CHECK_DIR}"/* 2>/dev/null || true
-        fi
-        
-        if [[ -f "$PID_FILE" ]]; then
-            log_info "Membersihkan PID file..."
-            rm -f "$PID_FILE" 2>/dev/null || true
-        fi
-        
-        log_success "✨ Pembersihan lengkap selesai! Siap untuk memulai fresh."
-        
-    else
-        log_info "Pembersihan dibatalkan."
+# ╭───────────────────────────────────────────────────────────────────╮
+# │ 🐳 DOCKER MANAGEMENT & MONITORING SYSTEM                        │
+# ╰───────────────────────────────────────────────────────────────────╯
+
+# Get real-time Docker system information
+get_docker_system_info() {
+    local info_output
+    
+    # Get Docker system info
+    if ! info_output=$(docker system info 2>/dev/null); then
+        echo "Error: Cannot connect to Docker daemon"
         return 1
     fi
-    return 0
+    
+    # Extract key information
+    local containers_running containers_paused containers_stopped
+    local images reclaimable_space used_space
+    
+    containers_running=$(echo "$info_output" | grep "Containers" | head -1 | awk '{print $2}' || echo "0")
+    containers_paused=$(echo "$info_output" | grep "Paused" | awk '{print $2}' || echo "0")
+    containers_stopped=$(echo "$info_output" | grep "Stopped" | awk '{print $2}' || echo "0")
+    images=$(echo "$info_output" | grep "Images" | awk '{print $2}' || echo "0")
+    
+    # Get disk usage info
+    local df_output
+    if df_output=$(docker system df 2>/dev/null); then
+        used_space=$(echo "$df_output" | grep "^TOTAL" | awk '{print $3}' || echo "0B")
+        reclaimable_space=$(echo "$df_output" | grep "^TOTAL" | awk '{print $4}' | sed 's/[()]//' || echo "0B")
+    else
+        used_space="Unknown"
+        reclaimable_space="Unknown"
+    fi
+    
+    # Return structured info
+    echo "CONTAINERS_RUNNING:$containers_running"
+    echo "CONTAINERS_PAUSED:$containers_paused"
+    echo "CONTAINERS_STOPPED:$containers_stopped"
+    echo "IMAGES:$images"
+    echo "USED_SPACE:$used_space"
+    echo "RECLAIMABLE_SPACE:$reclaimable_space"
+}
+
+# Display real-time Docker container status with enhanced monitoring
+display_docker_container_status() {
+    echo -e "  ${COLOR_YELLOW}📊 CONTAINER STATUS & MONITORING${COLOR_RESET}"
+    echo
+    
+    # Get all containers (running and stopped)
+    local all_containers
+    mapfile -t all_containers < <(docker ps -a --format "{{.Names}} {{.Status}} {{.Image}} {{.Ports}}" 2>/dev/null | sort)
+    
+    if [[ ${#all_containers[@]} -eq 0 ]]; then
+        echo -e "  ${COLOR_RED}❌ No Docker containers found${COLOR_RESET}"
+        return 1
+    fi
+    
+    # Header
+    printf "  ${COLOR_CYAN}%-25s %-15s %-20s %-15s %-15s${COLOR_RESET}\n" "CONTAINER" "STATUS" "IMAGE" "CPU%" "MEMORY"
+    printf "  %90s\n" | tr ' ' '-'
+    
+    # Display container information
+    for container_info in "${all_containers[@]}"; do
+        if [[ -n "$container_info" ]]; then
+            local name status image ports cpu_usage mem_usage
+            name=$(echo "$container_info" | awk '{print $1}')
+            status=$(echo "$container_info" | awk '{$1=$3=$4=""; gsub(/^[ \t]+/, ""); print}' | awk '{print $1" "$2}')
+            image=$(echo "$container_info" | awk '{print $3}')
+            
+            # Get resource stats for running containers
+            if [[ "$status" =~ ^Up.*$ ]]; then
+                local stats
+                if stats=$(docker stats --no-stream --format "{{.CPUPerc}},{{.MemUsage}}" "$name" 2>/dev/null); then
+                    cpu_usage=$(echo "$stats" | cut -d',' -f1)
+                    mem_usage=$(echo "$stats" | cut -d',' -f2 | awk '{print $1}')
+                else
+                    cpu_usage="0.00%"
+                    mem_usage="0MiB"
+                fi
+                
+                # Status color for running containers
+                local status_color="${COLOR_GREEN}"
+                local status_icon="🟢"
+            else
+                cpu_usage="--"
+                mem_usage="--"
+                local status_color="${COLOR_RED}"
+                local status_icon="🔴"
+                
+                # Check for paused containers
+                if [[ "$status" =~ paused ]]; then
+                    status_color="${COLOR_YELLOW}"
+                    status_icon="⏸️"
+                fi
+            fi
+            
+            # Truncate long names and images for display
+            local display_name display_image
+            display_name=$(echo "$name" | cut -c1-22)
+            display_image=$(echo "$image" | cut -c1-17)
+            
+            printf "  ${status_icon} ${COLOR_CYAN}%-22s${COLOR_RESET} ${status_color}%-13s${COLOR_RESET} ${COLOR_PURPLE}%-17s${COLOR_RESET} ${COLOR_YELLOW}%-13s${COLOR_RESET} ${COLOR_GREEN}%-13s${COLOR_RESET}\n" \
+                   "$display_name" "$status" "$display_image" "$cpu_usage" "$mem_usage"
+        fi
+    done
+    
+    echo
+}
+
+# Enhanced Docker management menu
+docker_management_menu() {
+    while true; do
+        clear
+        echo -e "${COLOR_CYAN}╭─────────────────────────────────────────────────────────────────────────────╮${COLOR_RESET}"
+        echo -e "${COLOR_CYAN}│                      🐳 DOCKER MANAGEMENT CENTER 🐳                       │${COLOR_RESET}"
+        echo -e "${COLOR_CYAN}╰─────────────────────────────────────────────────────────────────────────────╯${COLOR_RESET}"
+        echo
+        
+        # Get and display Docker system information
+        local docker_info
+        if docker_info=$(get_docker_system_info 2>/dev/null); then
+            local containers_running containers_paused containers_stopped
+            local images used_space reclaimable_space
+            
+            # Parse system info
+            containers_running=$(echo "$docker_info" | grep "CONTAINERS_RUNNING" | cut -d':' -f2)
+            containers_paused=$(echo "$docker_info" | grep "CONTAINERS_PAUSED" | cut -d':' -f2)
+            containers_stopped=$(echo "$docker_info" | grep "CONTAINERS_STOPPED" | cut -d':' -f2)
+            images=$(echo "$docker_info" | grep "IMAGES:" | cut -d':' -f2)
+            used_space=$(echo "$docker_info" | grep "USED_SPACE" | cut -d':' -f2)
+            reclaimable_space=$(echo "$docker_info" | grep "RECLAIMABLE_SPACE" | cut -d':' -f2)
+            
+            echo -e "  ${COLOR_YELLOW}🔍 DOCKER SYSTEM STATUS${COLOR_RESET}"
+            echo -e "    Running Containers : ${COLOR_GREEN}${containers_running}${COLOR_RESET}"
+            echo -e "    Paused Containers  : ${COLOR_YELLOW}${containers_paused}${COLOR_RESET}"
+            echo -e "    Stopped Containers : ${COLOR_RED}${containers_stopped}${COLOR_RESET}"
+            echo -e "    Total Images       : ${COLOR_CYAN}${images}${COLOR_RESET}"
+            echo -e "    Disk Usage         : ${COLOR_PURPLE}${used_space}${COLOR_RESET}"
+            echo -e "    Reclaimable Space  : ${COLOR_YELLOW}${reclaimable_space}${COLOR_RESET}"
+            echo
+        else
+            echo -e "  ${COLOR_RED}❌ Cannot connect to Docker daemon${COLOR_RESET}"
+            echo
+        fi
+        
+        # Display container status
+        display_docker_container_status
+        
+        echo -e "  ${COLOR_CYAN}🎛️ CONTAINER MANAGEMENT${COLOR_RESET}"
+        echo -e "    ${COLOR_CYAN}[1]${COLOR_RESET} ▶️ Start Container(s)       ${COLOR_CYAN}[2]${COLOR_RESET} ⏹️ Stop Container(s)"
+        echo -e "    ${COLOR_CYAN}[3]${COLOR_RESET} 🔄 Restart Container(s)     ${COLOR_CYAN}[4]${COLOR_RESET} ⏸️ Pause/Unpause Container(s)"
+        echo -e "    ${COLOR_CYAN}[5]${COLOR_RESET} 🗑️ Remove Container(s)      ${COLOR_CYAN}[6]${COLOR_RESET} 📊 Container Details"
+        echo
+        echo -e "  ${COLOR_CYAN}🧹 CLEANUP & MAINTENANCE${COLOR_RESET}"
+        echo -e "    ${COLOR_CYAN}[7]${COLOR_RESET} 🧽 Quick Cleanup           ${COLOR_CYAN}[8]${COLOR_RESET} 🗑️ Deep System Cleanup"
+        echo -e "    ${COLOR_CYAN}[9]${COLOR_RESET} 📦 Image Management         ${COLOR_CYAN}[10]${COLOR_RESET} 💾 Volume Management"
+        echo
+        echo -e "  ${COLOR_CYAN}📊 MONITORING & INFO${COLOR_RESET}"
+        echo -e "    ${COLOR_CYAN}[11]${COLOR_RESET} 📈 Resource Usage          ${COLOR_CYAN}[12]${COLOR_RESET} 🔄 Refresh Status"
+        echo -e "    ${COLOR_CYAN}[13]${COLOR_RESET} 📋 System Information      ${COLOR_CYAN}[14]${COLOR_RESET} 📝 Export Status Report"
+        echo
+        echo -e "    ${COLOR_CYAN}[0]${COLOR_RESET} 🔙 Back to Main Menu"
+        echo
+        
+        local choice
+        prompt_user "Select Docker Management Option: " choice
+        echo
+        
+        local should_pause=false
+        case "$choice" in
+            1) docker_start_containers && should_pause=true ;;
+            2) docker_stop_containers && should_pause=true ;;
+            3) docker_restart_containers && should_pause=true ;;
+            4) docker_pause_unpause_containers && should_pause=true ;;
+            5) docker_remove_containers && should_pause=true ;;
+            6) docker_container_details && should_pause=true ;;
+            7) docker_quick_cleanup && should_pause=true ;;
+            8) docker_deep_cleanup && should_pause=true ;;
+            9) docker_image_management && should_pause=true ;;
+            10) docker_volume_management && should_pause=true ;;
+            11) docker_resource_usage && should_pause=true ;;
+            12) log_info "🔄 Refreshing Docker status..."; sleep 1 ;; # Just refresh, no pause
+            13) docker_system_information && should_pause=true ;;
+            14) docker_export_status_report && should_pause=true ;;
+            0) return ;;
+            *) log_error "Invalid option. Please try again." ; should_pause=true ;;
+        esac
+        
+        if [ "$should_pause" = true ]; then
+            echo
+            prompt_user "Press Enter to continue..." "dummy_var"
+        fi
+    done
+}
+
+# Start Docker containers
+docker_start_containers() {
+    local containers
+    mapfile -t containers < <(docker ps -a --filter "status=exited" --format "{{.Names}}" | sort)
+    
+    if [[ ${#containers[@]} -eq 0 ]]; then
+        log_warn "No stopped containers found to start"
+        return 1
+    fi
+    
+    log_info "Select containers to start:"
+    for i in "${!containers[@]}"; do
+        echo -e "  ${COLOR_CYAN}[$((i+1))]${COLOR_RESET} ${containers[i]}"
+    done
+    echo -e "  ${COLOR_CYAN}[a]${COLOR_RESET} Start All Stopped Containers"
+    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Cancel"
+    echo
+    
+    local choice
+    prompt_user "Enter choice (separate multiple with spaces): " choice
+    
+    if [[ "$choice" == "0" ]]; then
+        return 1
+    fi
+    
+    local targets=()
+    if [[ "$choice" =~ ^[aA]$ ]]; then
+        targets=("${containers[@]}")
+    else
+        for num in $choice; do
+            if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -gt 0 ] && [ "$num" -le "${#containers[@]}" ]; then
+                targets+=("${containers[$((num-1))]}")
+            else
+                log_error "Invalid input: '$num'"
+                return 1
+            fi
+        done
+    fi
+    
+    if [ ${#targets[@]} -eq 0 ]; then
+        log_warn "No containers selected"
+        return 1
+    fi
+    
+    for container in "${targets[@]}"; do
+        log_info "Starting container: $container"
+        if docker start "$container" >/dev/null 2>&1; then
+            log_success "✅ Started: $container"
+        else
+            log_error "❌ Failed to start: $container"
+        fi
+    done
+    
+    log_success "Container start operation completed"
+}
+
+# Stop Docker containers
+docker_stop_containers() {
+    local containers
+    mapfile -t containers < <(docker ps --format "{{.Names}}" | sort)
+    
+    if [[ ${#containers[@]} -eq 0 ]]; then
+        log_warn "No running containers found to stop"
+        return 1
+    fi
+    
+    log_info "Select containers to stop:"
+    for i in "${!containers[@]}"; do
+        echo -e "  ${COLOR_CYAN}[$((i+1))]${COLOR_RESET} ${containers[i]}"
+    done
+    echo -e "  ${COLOR_CYAN}[a]${COLOR_RESET} Stop All Running Containers"
+    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Cancel"
+    echo
+    
+    local choice
+    prompt_user "Enter choice (separate multiple with spaces): " choice
+    
+    if [[ "$choice" == "0" ]]; then
+        return 1
+    fi
+    
+    local targets=()
+    if [[ "$choice" =~ ^[aA]$ ]]; then
+        targets=("${containers[@]}")
+    else
+        for num in $choice; do
+            if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -gt 0 ] && [ "$num" -le "${#containers[@]}" ]; then
+                targets+=("${containers[$((num-1))]}")
+            else
+                log_error "Invalid input: '$num'"
+                return 1
+            fi
+        done
+    fi
+    
+    if [ ${#targets[@]} -eq 0 ]; then
+        log_warn "No containers selected"
+        return 1
+    fi
+    
+    if [ ${#targets[@]} -gt 1 ]; then
+        log_warn "You will stop ${#targets[@]} containers:"
+        for target in "${targets[@]}"; do
+            echo -e "  - ${COLOR_YELLOW}${target}${COLOR_RESET}"
+        done
+        echo
+        if ! prompt_confirm "Continue with stopping these containers?"; then
+            return 1
+        fi
+    fi
+    
+    for container in "${targets[@]}"; do
+        log_info "Stopping container: $container"
+        if docker stop "$container" >/dev/null 2>&1; then
+            log_success "✅ Stopped: $container"
+        else
+            log_error "❌ Failed to stop: $container"
+        fi
+    done
+    
+    log_success "Container stop operation completed"
+}
+
+# Restart Docker containers
+docker_restart_containers() {
+    local containers
+    mapfile -t containers < <(docker ps -a --format "{{.Names}}" | sort)
+    
+    if [[ ${#containers[@]} -eq 0 ]]; then
+        log_warn "No containers found to restart"
+        return 1
+    fi
+    
+    log_info "Select containers to restart:"
+    for i in "${!containers[@]}"; do
+        local status
+        status=$(docker inspect -f '{{.State.Status}}' "${containers[i]}")
+        local status_color="${COLOR_YELLOW}"
+        if [[ "$status" == "running" ]]; then status_color="${COLOR_GREEN}"; fi
+        if [[ "$status" == "exited" ]]; then status_color="${COLOR_RED}"; fi
+        echo -e "  ${COLOR_CYAN}[$((i+1))]${COLOR_RESET} ${containers[i]} ${status_color}($status)${COLOR_RESET}"
+    done
+    echo -e "  ${COLOR_CYAN}[a]${COLOR_RESET} Restart All Containers"
+    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Cancel"
+    echo
+    
+    local choice
+    prompt_user "Enter choice (separate multiple with spaces): " choice
+    
+    if [[ "$choice" == "0" ]]; then
+        return 1
+    fi
+    
+    local targets=()
+    if [[ "$choice" =~ ^[aA]$ ]]; then
+        targets=("${containers[@]}")
+    else
+        for num in $choice; do
+            if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -gt 0 ] && [ "$num" -le "${#containers[@]}" ]; then
+                targets+=("${containers[$((num-1))]}")
+            else
+                log_error "Invalid input: '$num'"
+                return 1
+            fi
+        done
+    fi
+    
+    if [ ${#targets[@]} -eq 0 ]; then
+        log_warn "No containers selected"
+        return 1
+    fi
+    
+    for container in "${targets[@]}"; do
+        log_info "Restarting container: $container"
+        if docker restart "$container" >/dev/null 2>&1; then
+            log_success "✅ Restarted: $container"
+        else
+            log_error "❌ Failed to restart: $container"
+        fi
+    done
+    
+    log_success "Container restart operation completed"
+}
+
+# Pause/Unpause Docker containers
+docker_pause_unpause_containers() {
+    local running_containers paused_containers
+    mapfile -t running_containers < <(docker ps --filter "status=running" --format "{{.Names}}" | sort)
+    mapfile -t paused_containers < <(docker ps --filter "status=paused" --format "{{.Names}}" | sort)
+    
+    if [[ ${#running_containers[@]} -eq 0 && ${#paused_containers[@]} -eq 0 ]]; then
+        log_warn "No running or paused containers found"
+        return 1
+    fi
+    
+    echo -e "  ${COLOR_CYAN}PAUSE/UNPAUSE OPTIONS${COLOR_RESET}"
+    echo -e "    ${COLOR_CYAN}[1]${COLOR_RESET} ⏸️ Pause Running Containers"
+    echo -e "    ${COLOR_CYAN}[2]${COLOR_RESET} ▶️ Unpause Paused Containers"
+    echo -e "    ${COLOR_CYAN}[0]${COLOR_RESET} Cancel"
+    echo
+    
+    local action_choice
+    prompt_user "Select action: " action_choice
+    
+    case "$action_choice" in
+        1)
+            if [[ ${#running_containers[@]} -eq 0 ]]; then
+                log_warn "No running containers to pause"
+                return 1
+            fi
+            
+            log_info "Select containers to pause:"
+            for i in "${!running_containers[@]}"; do
+                echo -e "  ${COLOR_CYAN}[$((i+1))]${COLOR_RESET} ${running_containers[i]}"
+            done
+            echo -e "  ${COLOR_CYAN}[a]${COLOR_RESET} Pause All Running"
+            echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Cancel"
+            echo
+            
+            local choice
+            prompt_user "Enter choice: " choice
+            
+            if [[ "$choice" == "0" ]]; then
+                return 1
+            fi
+            
+            local targets=()
+            if [[ "$choice" =~ ^[aA]$ ]]; then
+                targets=("${running_containers[@]}")
+            elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -gt 0 ] && [ "$choice" -le "${#running_containers[@]}" ]; then
+                targets=("${running_containers[$((choice-1))]}")
+            else
+                log_error "Invalid choice"
+                return 1
+            fi
+            
+            for container in "${targets[@]}"; do
+                log_info "Pausing container: $container"
+                if docker pause "$container" >/dev/null 2>&1; then
+                    log_success "✅ Paused: $container"
+                else
+                    log_error "❌ Failed to pause: $container"
+                fi
+            done
+            ;;
+            
+        2)
+            if [[ ${#paused_containers[@]} -eq 0 ]]; then
+                log_warn "No paused containers to unpause"
+                return 1
+            fi
+            
+            log_info "Select containers to unpause:"
+            for i in "${!paused_containers[@]}"; do
+                echo -e "  ${COLOR_CYAN}[$((i+1))]${COLOR_RESET} ${paused_containers[i]}"
+            done
+            echo -e "  ${COLOR_CYAN}[a]${COLOR_RESET} Unpause All Paused"
+            echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Cancel"
+            echo
+            
+            local choice
+            prompt_user "Enter choice: " choice
+            
+            if [[ "$choice" == "0" ]]; then
+                return 1
+            fi
+            
+            local targets=()
+            if [[ "$choice" =~ ^[aA]$ ]]; then
+                targets=("${paused_containers[@]}")
+            elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -gt 0 ] && [ "$choice" -le "${#paused_containers[@]}" ]; then
+                targets=("${paused_containers[$((choice-1))]}")
+            else
+                log_error "Invalid choice"
+                return 1
+            fi
+            
+            for container in "${targets[@]}"; do
+                log_info "Unpausing container: $container"
+                if docker unpause "$container" >/dev/null 2>&1; then
+                    log_success "✅ Unpaused: $container"
+                else
+                    log_error "❌ Failed to unpause: $container"
+                fi
+            done
+            ;;
+            
+        0)
+            return 1
+            ;;
+        *)
+            log_error "Invalid option"
+            return 1
+            ;;
+    esac
+    
+    log_success "Pause/unpause operation completed"
+}
+
+# Remove Docker containers
+docker_remove_containers() {
+    local containers
+    mapfile -t containers < <(docker ps -a --format "{{.Names}} {{.Status}}" | sort)
+    
+    if [[ ${#containers[@]} -eq 0 ]]; then
+        log_warn "No containers found to remove"
+        return 1
+    fi
+    
+    log_info "Select containers to remove:"
+    for i in "${!containers[@]}"; do
+        local name status
+        name=$(echo "${containers[i]}" | awk '{print $1}')
+        status=$(echo "${containers[i]}" | awk '{$1=""; gsub(/^[ \t]+/, ""); print}' | awk '{print $1" "$2}')
+        
+        local status_color="${COLOR_YELLOW}"
+        if [[ "$status" =~ ^Up.*$ ]]; then status_color="${COLOR_GREEN}"; fi
+        if [[ "$status" =~ ^Exited.*$ ]]; then status_color="${COLOR_RED}"; fi
+        
+        echo -e "  ${COLOR_CYAN}[$((i+1))]${COLOR_RESET} $name ${status_color}($status)${COLOR_RESET}"
+    done
+    echo -e "  ${COLOR_CYAN}[a]${COLOR_RESET} Remove All Containers"
+    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Cancel"
+    echo
+    
+    local choice
+    prompt_user "Enter choice (separate multiple with spaces): " choice
+    
+    if [[ "$choice" == "0" ]]; then
+        return 1
+    fi
+    
+    local targets=()
+    if [[ "$choice" =~ ^[aA]$ ]]; then
+        for container_info in "${containers[@]}"; do
+            targets+=("$(echo "$container_info" | awk '{print $1}')")
+        done
+    else
+        for num in $choice; do
+            if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -gt 0 ] && [ "$num" -le "${#containers[@]}" ]; then
+                targets+=("$(echo "${containers[$((num-1))]}" | awk '{print $1}')")
+            else
+                log_error "Invalid input: '$num'"
+                return 1
+            fi
+        done
+    fi
+    
+    if [ ${#targets[@]} -eq 0 ]; then
+        log_warn "No containers selected"
+        return 1
+    fi
+    
+    echo
+    log_warn "⚠️ You will PERMANENTLY remove ${#targets[@]} containers:"
+    for target in "${targets[@]}"; do
+        echo -e "  - ${COLOR_YELLOW}${target}${COLOR_RESET}"
+    done
+    echo
+    
+    if ! prompt_confirm "Are you sure you want to remove these containers?"; then
+        return 1
+    fi
+    
+    for container in "${targets[@]}"; do
+        log_info "Removing container: $container"
+        if docker rm -f "$container" >/dev/null 2>&1; then
+            log_success "✅ Removed: $container"
+        else
+            log_error "❌ Failed to remove: $container"
+        fi
+    done
+    
+    log_success "Container removal operation completed"
+}
+
+# Display detailed container information
+docker_container_details() {
+    local containers
+    mapfile -t containers < <(docker ps -a --format "{{.Names}}" | sort)
+    
+    if [[ ${#containers[@]} -eq 0 ]]; then
+        log_warn "No containers found"
+        return 1
+    fi
+    
+    log_info "Select container for detailed information:"
+    for i in "${!containers[@]}"; do
+        echo -e "  ${COLOR_CYAN}[$((i+1))]${COLOR_RESET} ${containers[i]}"
+    done
+    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} Cancel"
+    echo
+    
+    local choice
+    prompt_user "Enter choice: " choice
+    
+    if [[ ! "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -eq 0 ] || [ "$choice" -gt "${#containers[@]}" ]; then
+        return 1
+    fi
+    
+    local container="${containers[$((choice-1))]}"
+    
+    echo
+    log_info "📋 Detailed information for container: $container"
+    echo
+    
+    # Basic container info
+    local inspect_output
+    if inspect_output=$(docker inspect "$container" 2>/dev/null); then
+        local status created started image_id ports
+        status=$(echo "$inspect_output" | jq -r '.[0].State.Status')
+        created=$(echo "$inspect_output" | jq -r '.[0].Created' | cut -c1-19 | tr 'T' ' ')
+        started=$(echo "$inspect_output" | jq -r '.[0].State.StartedAt' | cut -c1-19 | tr 'T' ' ')
+        image_id=$(echo "$inspect_output" | jq -r '.[0].Image' | cut -c8-19)
+        ports=$(echo "$inspect_output" | jq -r '.[0].NetworkSettings.Ports | to_entries[] | "\(.key) -> \(.value[0].HostPort // "none")"' | head -3 | tr '\n' ' ')
+        
+        echo -e "  ${COLOR_YELLOW}BASIC INFORMATION${COLOR_RESET}"
+        echo -e "    Container Name : ${COLOR_CYAN}$container${COLOR_RESET}"
+        echo -e "    Status         : ${COLOR_GREEN}$status${COLOR_RESET}"
+        echo -e "    Created        : ${COLOR_PURPLE}$created${COLOR_RESET}"
+        echo -e "    Started        : ${COLOR_PURPLE}$started${COLOR_RESET}"
+        echo -e "    Image ID       : ${COLOR_YELLOW}$image_id${COLOR_RESET}"
+        if [[ -n "$ports" && "$ports" != " " ]]; then
+            echo -e "    Port Mappings  : ${COLOR_CYAN}$ports${COLOR_RESET}"
+        fi
+        echo
+        
+        # Resource usage for running containers
+        if [[ "$status" == "running" ]]; then
+            local stats_output
+            if stats_output=$(docker stats --no-stream --format "{{.CPUPerc}},{{.MemUsage}},{{.NetIO}},{{.BlockIO}}" "$container" 2>/dev/null); then
+                local cpu_perc mem_usage net_io block_io
+                cpu_perc=$(echo "$stats_output" | cut -d',' -f1)
+                mem_usage=$(echo "$stats_output" | cut -d',' -f2)
+                net_io=$(echo "$stats_output" | cut -d',' -f3)
+                block_io=$(echo "$stats_output" | cut -d',' -f4)
+                
+                echo -e "  ${COLOR_YELLOW}RESOURCE USAGE${COLOR_RESET}"
+                echo -e "    CPU Usage      : ${COLOR_GREEN}$cpu_perc${COLOR_RESET}"
+                echo -e "    Memory Usage   : ${COLOR_GREEN}$mem_usage${COLOR_RESET}"
+                echo -e "    Network I/O    : ${COLOR_CYAN}$net_io${COLOR_RESET}"
+                echo -e "    Block I/O      : ${COLOR_CYAN}$block_io${COLOR_RESET}"
+                echo
+            fi
+        fi
+        
+        # Environment variables (if any nexus-specific ones exist)
+        local env_vars
+        env_vars=$(echo "$inspect_output" | jq -r '.[0].Config.Env[]' | grep -E "^(NODE_ID|MAX_THREADS|WALLET_ADDRESS|ENVIRONMENT)=" 2>/dev/null || echo "")
+        if [[ -n "$env_vars" ]]; then
+            echo -e "  ${COLOR_YELLOW}ENVIRONMENT VARIABLES${COLOR_RESET}"
+            while IFS= read -r env_var; do
+                echo -e "    ${COLOR_CYAN}$env_var${COLOR_RESET}"
+            done <<< "$env_vars"
+            echo
+        fi
+        
+    else
+        log_error "Failed to retrieve container information"
+        return 1
+    fi
+    
+    # Recent logs (last 20 lines)
+    echo -e "  ${COLOR_YELLOW}RECENT LOGS (Last 20 lines)${COLOR_RESET}"
+    local log_output
+    if log_output=$(docker logs --tail 20 "$container" 2>&1); then
+        if [[ -n "$log_output" ]]; then
+            echo "$log_output" | while IFS= read -r line; do
+                echo -e "    ${COLOR_CYAN}${line}${COLOR_RESET}"
+            done
+        else
+            echo -e "    ${COLOR_YELLOW}No recent log entries${COLOR_RESET}"
+        fi
+    else
+        echo -e "    ${COLOR_RED}Failed to retrieve logs${COLOR_RESET}"
+    fi
+    echo
+}
+
+# Quick cleanup - remove stopped containers and unused images
+docker_quick_cleanup() {
+    log_info "🧽 Starting quick Docker cleanup..."
+    echo
+    
+    # Remove stopped containers
+    log_info "Removing stopped containers..."
+    local stopped_containers
+    stopped_containers=$(docker ps -aq --filter "status=exited" 2>/dev/null)
+    if [[ -n "$stopped_containers" ]]; then
+        if echo "$stopped_containers" | xargs docker rm >/dev/null 2>&1; then
+            log_success "✅ Removed stopped containers"
+        else
+            log_warn "⚠️ Some stopped containers could not be removed"
+        fi
+    else
+        log_info "ℹ️ No stopped containers to remove"
+    fi
+    
+    # Remove dangling images
+    log_info "Removing dangling images..."
+    if docker image prune -f >/dev/null 2>&1; then
+        log_success "✅ Removed dangling images"
+    else
+        log_warn "⚠️ Failed to remove some dangling images"
+    fi
+    
+    # Remove unused build cache
+    log_info "Cleaning build cache..."
+    if docker builder prune -f >/dev/null 2>&1; then
+        log_success "✅ Cleaned build cache"
+    else
+        log_warn "⚠️ Failed to clean build cache"
+    fi
+    
+    log_success "🧽 Quick cleanup completed"
+}
+
+# Deep system cleanup - comprehensive cleanup of all Docker resources
+docker_deep_cleanup() {
+    log_warn "⚠️ DEEP CLEANUP WARNING ⚠️"
+    log_warn "This operation will:"
+    echo -e "  ${COLOR_RED}• Stop and remove ALL containers${COLOR_RESET}"
+    echo -e "  ${COLOR_RED}• Remove ALL unused images${COLOR_RESET}"
+    echo -e "  ${COLOR_RED}• Remove ALL unused volumes${COLOR_RESET}"
+    echo -e "  ${COLOR_RED}• Remove ALL unused networks${COLOR_RESET}"
+    echo -e "  ${COLOR_RED}• Clear ALL build cache${COLOR_RESET}"
+    echo
+    log_warn "This will free maximum disk space but requires rebuilding everything"
+    echo
+    
+    if ! prompt_confirm "Are you absolutely sure you want to proceed with deep cleanup?"; then
+        log_info "Deep cleanup cancelled"
+        return 1
+    fi
+    
+    log_info "🧹 Starting comprehensive Docker cleanup..."
+    echo
+    
+    # Step 1: Stop all containers
+    log_info "1/8 Stopping all containers..."
+    local running_containers
+    running_containers=$(docker ps -q 2>/dev/null)
+    if [[ -n "$running_containers" ]]; then
+        if echo "$running_containers" | xargs docker stop >/dev/null 2>&1; then
+            log_success "✅ All containers stopped"
+        else
+            log_warn "⚠️ Some containers might still be running"
+        fi
+    else
+        log_info "ℹ️ No running containers to stop"
+    fi
+    
+    # Step 2: Remove all containers
+    log_info "2/8 Removing all containers..."
+    local all_containers
+    all_containers=$(docker ps -aq 2>/dev/null)
+    if [[ -n "$all_containers" ]]; then
+        if echo "$all_containers" | xargs docker rm -f >/dev/null 2>&1; then
+            log_success "✅ All containers removed"
+        else
+            log_warn "⚠️ Some containers could not be removed"
+        fi
+    else
+        log_info "ℹ️ No containers to remove"
+    fi
+    
+    # Step 3: Remove all images
+    log_info "3/8 Removing all unused images..."
+    if docker image prune -a -f >/dev/null 2>&1; then
+        log_success "✅ All unused images removed"
+    else
+        log_warn "⚠️ Failed to remove some images"
+    fi
+    
+    # Step 4: Remove all volumes
+    log_info "4/8 Removing all unused volumes..."
+    if docker volume prune -f >/dev/null 2>&1; then
+        log_success "✅ All unused volumes removed"
+    else
+        log_warn "⚠️ Failed to remove some volumes"
+    fi
+    
+    # Step 5: Remove all networks
+    log_info "5/8 Removing all unused networks..."
+    if docker network prune -f >/dev/null 2>&1; then
+        log_success "✅ All unused networks removed"
+    else
+        log_warn "⚠️ Failed to remove some networks"
+    fi
+    
+    # Step 6: Clear build cache
+    log_info "6/8 Clearing all build cache..."
+    if docker builder prune -a -f >/dev/null 2>&1; then
+        log_success "✅ All build cache cleared"
+    else
+        log_warn "⚠️ Failed to clear build cache"
+    fi
+    
+    # Step 7: System-wide cleanup
+    log_info "7/8 Running system-wide cleanup..."
+    if docker system prune -a -f >/dev/null 2>&1; then
+        log_success "✅ System-wide cleanup completed"
+    else
+        log_warn "⚠️ System-wide cleanup completed with warnings"
+    fi
+    
+    # Step 8: Clean nexus-manager specific files
+    log_info "8/8 Cleaning nexus-manager files..."
+    
+    if [[ -d "$LOG_DIR" ]]; then
+        rm -rf "${LOG_DIR}"/* 2>/dev/null || true
+        log_success "✅ Log directory cleaned"
+    fi
+    
+    if [[ -d "$HEALTH_CHECK_DIR" ]]; then
+        rm -rf "${HEALTH_CHECK_DIR}"/* 2>/dev/null || true
+        log_success "✅ Health check directory cleaned"
+    fi
+    
+    if [[ -f "$PID_FILE" ]]; then
+        rm -f "$PID_FILE" 2>/dev/null || true
+        log_success "✅ PID file cleaned"
+    fi
+    
+    # Show final disk usage
+    echo
+    log_info "📊 Final Docker disk usage:"
+    docker system df 2>/dev/null || log_warn "Could not display disk usage"
+    echo
+    
+    log_success "🧹 Deep cleanup completed! System is now clean and ready for fresh setup"
+}
+
+# Image management
+docker_image_management() {
+    local images
+    mapfile -t images < <(docker images --format "{{.Repository}}:{{.Tag}} {{.ID}} {{.Size}}" | sort)
+    
+    if [[ ${#images[@]} -eq 0 ]]; then
+        log_warn "No Docker images found"
+        return 1
+    fi
+    
+    echo -e "  ${COLOR_YELLOW}📦 DOCKER IMAGES${COLOR_RESET}"
+    echo
+    
+    printf "  ${COLOR_CYAN}%-30s %-15s %-10s${COLOR_RESET}\n" "IMAGE" "ID" "SIZE"
+    printf "  %55s\n" | tr ' ' '-'
+    
+    for image_info in "${images[@]}"; do
+        if [[ -n "$image_info" ]]; then
+            local image_name image_id size
+            image_name=$(echo "$image_info" | awk '{print $1}')
+            image_id=$(echo "$image_info" | awk '{print $2}' | cut -c1-12)
+            size=$(echo "$image_info" | awk '{print $3}')
+            
+            # Truncate long image names
+            local display_name
+            display_name=$(echo "$image_name" | cut -c1-27)
+            
+            printf "  ${COLOR_GREEN}%-27s${COLOR_RESET} ${COLOR_YELLOW}%-12s${COLOR_RESET} ${COLOR_CYAN}%-10s${COLOR_RESET}\n" \
+                   "$display_name" "$image_id" "$size"
+        fi
+    done
+    echo
+    
+    echo -e "  ${COLOR_CYAN}IMAGE MANAGEMENT OPTIONS${COLOR_RESET}"
+    echo -e "    ${COLOR_CYAN}[1]${COLOR_RESET} 🗑️ Remove Unused Images    ${COLOR_CYAN}[2]${COLOR_RESET} 🧽 Remove Dangling Images"
+    echo -e "    ${COLOR_CYAN}[3]${COLOR_RESET} 🔍 Image Details           ${COLOR_CYAN}[0]${COLOR_RESET} 🔙 Back"
+    echo
+    
+    local choice
+    prompt_user "Select option: " choice
+    
+    case "$choice" in
+        1)
+            log_info "Removing unused images..."
+            if docker image prune -a -f >/dev/null 2>&1; then
+                log_success "✅ Unused images removed"
+            else
+                log_error "❌ Failed to remove unused images"
+            fi
+            ;;
+        2)
+            log_info "Removing dangling images..."
+            if docker image prune -f >/dev/null 2>&1; then
+                log_success "✅ Dangling images removed"
+            else
+                log_error "❌ Failed to remove dangling images"
+            fi
+            ;;
+        3)
+            # Show detailed image information
+            echo
+            log_info "📋 Detailed image information:"
+            docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}\t{{.Size}}" 2>/dev/null || log_error "Failed to retrieve image details"
+            ;;
+        0)
+            return 0
+            ;;
+        *)
+            log_error "Invalid option"
+            ;;
+    esac
+}
+
+# Volume management
+docker_volume_management() {
+    local volumes
+    mapfile -t volumes < <(docker volume ls --format "{{.Name}} {{.Driver}}" 2>/dev/null)
+    
+    echo -e "  ${COLOR_YELLOW}💾 DOCKER VOLUMES${COLOR_RESET}"
+    echo
+    
+    if [[ ${#volumes[@]} -eq 0 ]]; then
+        echo -e "  ${COLOR_RED}❌ No Docker volumes found${COLOR_RESET}"
+        return 1
+    fi
+    
+    printf "  ${COLOR_CYAN}%-40s %-15s${COLOR_RESET}\n" "VOLUME NAME" "DRIVER"
+    printf "  %55s\n" | tr ' ' '-'
+    
+    for volume_info in "${volumes[@]}"; do
+        if [[ -n "$volume_info" ]]; then
+            local volume_name driver
+            volume_name=$(echo "$volume_info" | awk '{print $1}')
+            driver=$(echo "$volume_info" | awk '{print $2}')
+            
+            # Truncate long volume names
+            local display_name
+            display_name=$(echo "$volume_name" | cut -c1-37)
+            
+            printf "  ${COLOR_GREEN}%-37s${COLOR_RESET} ${COLOR_YELLOW}%-15s${COLOR_RESET}\n" \
+                   "$display_name" "$driver"
+        fi
+    done
+    echo
+    
+    echo -e "  ${COLOR_CYAN}VOLUME MANAGEMENT OPTIONS${COLOR_RESET}"
+    echo -e "    ${COLOR_CYAN}[1]${COLOR_RESET} 🗑️ Remove Unused Volumes   ${COLOR_CYAN}[2]${COLOR_RESET} 🔍 Volume Details"
+    echo -e "    ${COLOR_CYAN}[0]${COLOR_RESET} 🔙 Back"
+    echo
+    
+    local choice
+    prompt_user "Select option: " choice
+    
+    case "$choice" in
+        1)
+            log_info "Removing unused volumes..."
+            if docker volume prune -f >/dev/null 2>&1; then
+                log_success "✅ Unused volumes removed"
+            else
+                log_error "❌ Failed to remove unused volumes"
+            fi
+            ;;
+        2)
+            echo
+            log_info "📋 Detailed volume information:"
+            docker volume ls --format "table {{.Driver}}\t{{.Name}}" 2>/dev/null || log_error "Failed to retrieve volume details"
+            echo
+            # Show volume usage info if available
+            if command -v docker &>/dev/null && docker system df >/dev/null 2>&1; then
+                log_info "📊 Volume disk usage:"
+                docker system df -v 2>/dev/null | grep -A 10 "Local Volumes" || log_info "Volume usage details not available"
+            fi
+            ;;
+        0)
+            return 0
+            ;;
+        *)
+            log_error "Invalid option"
+            ;;
+    esac
+}
+
+# Display Docker resource usage
+docker_resource_usage() {
+    log_info "📈 Docker Resource Usage Analysis"
+    echo
+    
+    # System disk usage
+    log_info "💾 Docker Disk Usage:"
+    if docker system df 2>/dev/null; then
+        echo
+    else
+        log_error "Failed to retrieve Docker disk usage"
+    fi
+    
+    # Running containers resource usage
+    local running_containers
+    mapfile -t running_containers < <(docker ps --format "{{.Names}}" | sort)
+    
+    if [[ ${#running_containers[@]} -gt 0 ]]; then
+        log_info "📊 Container Resource Usage:"
+        echo
+        
+        printf "  ${COLOR_CYAN}%-20s %-10s %-15s %-15s %-15s${COLOR_RESET}\n" "CONTAINER" "CPU%" "MEMORY" "NET I/O" "BLOCK I/O"
+        printf "  %75s\n" | tr ' ' '-'
+        
+        for container in "${running_containers[@]}"; do
+            if [[ -n "$container" ]]; then
+                local stats_output
+                if stats_output=$(docker stats --no-stream --format "{{.CPUPerc}},{{.MemUsage}},{{.NetIO}},{{.BlockIO}}" "$container" 2>/dev/null); then
+                    local cpu_perc mem_usage net_io block_io
+                    cpu_perc=$(echo "$stats_output" | cut -d',' -f1)
+                    mem_usage=$(echo "$stats_output" | cut -d',' -f2 | awk '{print $1}')
+                    net_io=$(echo "$stats_output" | cut -d',' -f3)
+                    block_io=$(echo "$stats_output" | cut -d',' -f4)
+                    
+                    # Color code CPU usage
+                    local cpu_color="${COLOR_GREEN}"
+                    local cpu_num=$(echo "$cpu_perc" | sed 's/%//')
+                    if [[ -n "$cpu_num" && "$cpu_num" != "." ]]; then
+                        local cpu_int
+                        cpu_int=$(printf "%.0f" "$cpu_num" 2>/dev/null || echo "0")
+                        if [[ $cpu_int -gt 80 ]]; then
+                            cpu_color="${COLOR_RED}"
+                        elif [[ $cpu_int -gt 50 ]]; then
+                            cpu_color="${COLOR_YELLOW}"
+                        fi
+                    fi
+                    
+                    printf "  ${COLOR_CYAN}%-18s${COLOR_RESET} ${cpu_color}%-8s${COLOR_RESET} ${COLOR_GREEN}%-13s${COLOR_RESET} ${COLOR_PURPLE}%-13s${COLOR_RESET} ${COLOR_YELLOW}%-13s${COLOR_RESET}\n" \
+                           "${container:0:18}" "$cpu_perc" "$mem_usage" "$net_io" "$block_io"
+                else
+                    printf "  ${COLOR_CYAN}%-18s${COLOR_RESET} ${COLOR_RED}%-8s${COLOR_RESET} ${COLOR_RED}%-13s${COLOR_RESET} ${COLOR_RED}%-13s${COLOR_RESET} ${COLOR_RED}%-13s${COLOR_RESET}\n" \
+                           "${container:0:18}" "--" "--" "--" "--"
+                fi
+            fi
+        done
+        echo
+    else
+        log_info "ℹ️ No running containers to analyze"
+    fi
+    
+    # Docker daemon info
+    log_info "🔧 Docker Daemon Information:"
+    if docker info --format "{{.ServerVersion}} | {{.OSType}}/{{.Architecture}} | {{.NCPU}} CPUs | {{.MemTotal}}" 2>/dev/null; then
+        echo
+    else
+        log_error "Failed to retrieve Docker daemon information"
+    fi
+}
+
+# Display comprehensive Docker system information
+docker_system_information() {
+    log_info "📋 Docker System Information Report"
+    echo
+    
+    # Docker version
+    log_info "🔧 Docker Version:"
+    docker version --format "Client: {{.Client.Version}} | Server: {{.Server.Version}}" 2>/dev/null || log_error "Failed to get Docker version"
+    echo
+    
+    # System info
+    log_info "🖥️ System Info:"
+    if docker info --format "OS: {{.OSType}}/{{.Architecture}} | Kernel: {{.KernelVersion}} | CPUs: {{.NCPU}} | Memory: {{.MemTotal}}" 2>/dev/null; then
+        echo
+    else
+        log_error "Failed to retrieve system information"
+    fi
+    
+    # Storage driver info
+    log_info "💾 Storage Driver:"
+    docker info --format "Driver: {{.Driver}} | Root Dir: {{.DockerRootDir}}" 2>/dev/null || log_error "Failed to get storage info"
+    echo
+    
+    # Container summary
+    local total_containers running_containers stopped_containers paused_containers
+    total_containers=$(docker ps -aq 2>/dev/null | wc -l)
+    running_containers=$(docker ps -q 2>/dev/null | wc -l)
+    stopped_containers=$(docker ps -aq --filter "status=exited" 2>/dev/null | wc -l)
+    paused_containers=$(docker ps -aq --filter "status=paused" 2>/dev/null | wc -l)
+    
+    log_info "📦 Container Summary:"
+    echo -e "    Total: ${COLOR_CYAN}$total_containers${COLOR_RESET} | Running: ${COLOR_GREEN}$running_containers${COLOR_RESET} | Stopped: ${COLOR_RED}$stopped_containers${COLOR_RESET} | Paused: ${COLOR_YELLOW}$paused_containers${COLOR_RESET}"
+    echo
+    
+    # Image summary
+    local total_images
+    total_images=$(docker images -q 2>/dev/null | wc -l)
+    log_info "🖼️ Image Summary:"
+    echo -e "    Total Images: ${COLOR_CYAN}$total_images${COLOR_RESET}"
+    echo
+    
+    # Volume summary
+    local total_volumes
+    total_volumes=$(docker volume ls -q 2>/dev/null | wc -l)
+    log_info "💾 Volume Summary:"
+    echo -e "    Total Volumes: ${COLOR_CYAN}$total_volumes${COLOR_RESET}"
+    echo
+    
+    # Network summary
+    local total_networks
+    total_networks=$(docker network ls -q 2>/dev/null | wc -l)
+    log_info "🌐 Network Summary:"
+    echo -e "    Total Networks: ${COLOR_CYAN}$total_networks${COLOR_RESET}"
+    echo
+    
+    # Disk usage
+    log_info "💿 Disk Usage Summary:"
+    docker system df 2>/dev/null || log_error "Failed to get disk usage information"
+}
+
+# Export Docker status report
+docker_export_status_report() {
+    local report_file="$BASE_DIR/docker-status-report-$(date +%Y%m%d-%H%M%S).txt"
+    
+    log_info "📝 Generating Docker status report..."
+    
+    {
+        echo "# Docker Status Report"
+        echo "# Generated: $(date)"
+        echo "# System: $OSTYPE"
+        echo "="*60
+        echo
+        
+        echo "## Docker Version"
+        docker version 2>/dev/null || echo "Failed to get Docker version"
+        echo
+        
+        echo "## System Information"
+        docker info 2>/dev/null || echo "Failed to get Docker system info"
+        echo
+        
+        echo "## Container Status"
+        docker ps -a --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || echo "Failed to get container status"
+        echo
+        
+        echo "## Image List"
+        docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}\t{{.Size}}" 2>/dev/null || echo "Failed to get image list"
+        echo
+        
+        echo "## Volume List"
+        docker volume ls 2>/dev/null || echo "Failed to get volume list"
+        echo
+        
+        echo "## Network List"
+        docker network ls 2>/dev/null || echo "Failed to get network list"
+        echo
+        
+        echo "## Disk Usage"
+        docker system df 2>/dev/null || echo "Failed to get disk usage"
+        echo
+        
+        # Resource usage for running containers
+        local running_containers
+        running_containers=$(docker ps --format "{{.Names}}" 2>/dev/null)
+        if [[ -n "$running_containers" ]]; then
+            echo "## Resource Usage (Running Containers)"
+            echo "Container\t\tCPU%\t\tMemory\t\tNet I/O\t\tBlock I/O"
+            echo "-"*70
+            
+            echo "$running_containers" | while read -r container; do
+                if [[ -n "$container" ]]; then
+                    local stats
+                    stats=$(docker stats --no-stream --format "{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}" "$container" 2>/dev/null || echo "N/A\tN/A\tN/A\tN/A")
+                    printf "%-20s\t%s\n" "$container" "$stats"
+                fi
+            done
+        fi
+        
+        echo
+        echo "# End of Report"
+        
+    } > "$report_file"
+    
+    if [[ -f "$report_file" ]]; then
+        log_success "✅ Docker status report exported to: $report_file"
+        
+        # Show file size
+        local file_size
+        file_size=$(ls -lh "$report_file" | awk '{print $5}')
+        log_info "📄 Report size: $file_size"
+        
+        # Ask if user wants to view the report
+        if prompt_confirm "Would you like to view the report now?"; then
+            echo
+            log_info "📖 Displaying report contents:"
+            echo
+            cat "$report_file"
+        fi
+    else
+        log_error "❌ Failed to create report file"
+        return 1
+    fi
+}
+
+# Legacy docker_prune function for backward compatibility (now calls docker_deep_cleanup)
+docker_prune() {
+    # For backward compatibility, just call the new docker management menu
+    docker_management_menu
 }
 
 # ╭───────────────────────────────────────────────────────────────────╮
 # │ 📊 DASHBOARD & LOOP UTAMA (Tampilan Minimalis Baru)               │
 # ╰───────────────────────────────────────────────────────────────────╯
+
+# Centralized task counting function for consistency
+_calculate_container_tasks() {
+    local container="$1"
+    local time_period="${2:-24h}"  # Default: 24 hours
+    
+    local tasks=0
+    local debug_info=""
+    
+    # Get container logs for the specified period
+    if container_logs=$(docker logs --since="$time_period" "$container" 2>/dev/null); then
+        if [[ -n "$container_logs" ]]; then
+            # Count different types of task completions (comprehensive patterns)
+            local proof_count task_count completed_count submitted_count
+            
+            # Count proof submissions (most reliable indicator)
+            proof_count=$(echo "$container_logs" | grep -c "Proof submitted successfully\|Successfully submitted\|proof.*success" 2>/dev/null || echo "0")
+            
+            # Count task completions
+            task_count=$(echo "$container_logs" | grep -c "Got task\|Task completed\|task.*completed" 2>/dev/null || echo "0")
+            
+            # Count general completions
+            completed_count=$(echo "$container_logs" | grep -c "Completed\|completed" 2>/dev/null || echo "0")
+            
+            # Count submissions
+            submitted_count=$(echo "$container_logs" | grep -c "Submitted\|submitted" 2>/dev/null || echo "0")
+            
+            # Validate all numbers
+            [[ "$proof_count" =~ ^[0-9]+$ ]] || proof_count=0
+            [[ "$task_count" =~ ^[0-9]+$ ]] || task_count=0
+            [[ "$completed_count" =~ ^[0-9]+$ ]] || completed_count=0
+            [[ "$submitted_count" =~ ^[0-9]+$ ]] || submitted_count=0
+            
+            # Use the highest count as the most accurate indicator
+            local max_count=0
+            local best_source="none"
+            
+            if [[ $proof_count -gt $max_count ]]; then
+                max_count=$proof_count
+                best_source="proofs"
+            fi
+            if [[ $task_count -gt $max_count ]]; then
+                max_count=$task_count
+                best_source="tasks"
+            fi
+            if [[ $completed_count -gt $max_count ]]; then
+                max_count=$completed_count
+                best_source="completions"
+            fi
+            if [[ $submitted_count -gt $max_count ]]; then
+                max_count=$submitted_count
+                best_source="submissions"
+            fi
+            
+            tasks=$max_count
+            debug_info="source:$best_source,proofs:$proof_count,tasks:$task_count,completed:$completed_count,submitted:$submitted_count"
+        fi
+    fi
+    
+    # Fallback: Check if container is alive but no tasks yet
+    if [[ $tasks -eq 0 ]]; then
+        # Check for any recent activity (connection, initialization)
+        if docker logs --since="1h" "$container" 2>/dev/null | grep -q "nexus\|Waiting\|ready\|Starting\|Connected" 2>/dev/null; then
+            tasks=1  # Show minimal activity indicator
+            debug_info="${debug_info},fallback:alive"
+        else
+            debug_info="${debug_info},fallback:inactive"
+        fi
+    fi
+    
+    # For debugging purposes, uncomment the line below:
+    # echo "[DEBUG] $container: tasks=$tasks ($debug_info)" >&2
+    
+    echo "$tasks"
+}
 
 _calculate_uptime() {
     local container="$1"
@@ -2673,33 +4014,18 @@ display_dashboard() {
     running_count=${#running_containers_temp[@]}
     stopped_count=${#stopped_containers_temp[@]}
     
-    # Calculate total tasks across all nodes
+    # Calculate total tasks across all nodes using centralized function
     local total_tasks=0
     local task_display="0"
     local task_color="${COLOR_PURPLE}"
     
     if [[ $running_count -gt 0 ]]; then
-        # Sum up tasks from all running containers
+        # Sum up tasks from all running containers using consistent method
         for container in "${running_containers_temp[@]}"; do
             if [[ -n "$container" ]]; then
-                # Get task count from logs (24h period)
-                local container_tasks=0
-                
-                if container_logs=$(docker logs --since="24h" "$container" 2>/dev/null); then
-                    if [[ -n "$container_logs" ]]; then
-                        # Count proofs and task completions
-                        local proof_count task_count
-                        proof_count=$(echo "$container_logs" | grep -c "Proof submitted successfully\|Successfully submitted" 2>/dev/null || echo "0")
-                        task_count=$(echo "$container_logs" | grep -c "Got task\|Task completed" 2>/dev/null || echo "0")
-                        
-                        # Validate numbers
-                        [[ "$proof_count" =~ ^[0-9]+$ ]] || proof_count=0
-                        [[ "$task_count" =~ ^[0-9]+$ ]] || task_count=0
-                        
-                        # Use the higher count as indicator
-                        container_tasks=$(( proof_count > task_count ? proof_count : task_count ))
-                    fi
-                fi
+                # Use centralized task counting function
+                local container_tasks
+                container_tasks=$(_calculate_container_tasks "$container" "24h")
                 
                 # Add to total
                 total_tasks=$((total_tasks + container_tasks))
@@ -2795,33 +4121,8 @@ display_dashboard() {
                 # Calculate uptime
                 uptime=$(_calculate_uptime "$container")
                 
-                # Optimized task counting - use single most reliable source
-                tasks=0
-                
-                # Primary method: Check container logs for recent activity (last 24h)
-                if container_logs=$(docker logs --since="24h" "$container" 2>/dev/null); then
-                    if [[ -n "$container_logs" ]]; then
-                        # Count proofs and task completions
-                        local proof_count task_count
-                        proof_count=$(echo "$container_logs" | grep -c "Proof submitted successfully\|Successfully submitted" 2>/dev/null || echo "0")
-                        task_count=$(echo "$container_logs" | grep -c "Got task\|Task completed" 2>/dev/null || echo "0")
-                        
-                        # Validate numbers
-                        [[ "$proof_count" =~ ^[0-9]+$ ]] || proof_count=0
-                        [[ "$task_count" =~ ^[0-9]+$ ]] || task_count=0
-                        
-                        # Use the higher count as primary indicator
-                        tasks=$(( proof_count > task_count ? proof_count : task_count ))
-                    fi
-                fi
-                
-                # Fallback: Check if node is actively running (simple health indicator)
-                if [[ $tasks -eq 0 ]]; then
-                    # Check for recent activity in logs (any activity in last hour)
-                    if docker logs --since="1h" "$container" 2>/dev/null | grep -q "nexus\|Waiting\|ready\|task" 2>/dev/null; then
-                        tasks=1  # Indicate it's alive but no completed tasks yet
-                    fi
-                fi
+                # Use centralized task counting function for consistency
+                tasks=$(_calculate_container_tasks "$container" "24h")
                 
                 # CPU/RAM color indicators based on usage - use bash arithmetic
                 local cpu_color="${COLOR_GREEN}"
@@ -2934,7 +4235,7 @@ display_menu() {
     echo -e "  ${COLOR_CYAN}[1]${COLOR_RESET} 🏠️Build/Update Image            ${COLOR_CYAN}[2]${COLOR_RESET} 🔄 Update CLI"
     echo -e "  ${COLOR_CYAN}[3]${COLOR_RESET} 📦 Manage Instances              ${COLOR_CYAN}[4]${COLOR_RESET} 🎮 Node Control"
     echo -e "  ${COLOR_CYAN}[5]${COLOR_RESET} 🌐 Environment Config            ${COLOR_CYAN}[6]${COLOR_RESET} 📜 View Logs"
-    echo -e "  ${COLOR_CYAN}[7]${COLOR_RESET} 💿 Backup & Restore              ${COLOR_CYAN}[A]${COLOR_RESET} 🧹 Docker Cleanup"
+    echo -e "  ${COLOR_CYAN}[7]${COLOR_RESET} 💿 Backup & Restore              ${COLOR_CYAN}[A]${COLOR_RESET} 🐳 Docker Management"
     echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} 🚪 Exit Program"
 	echo
     
