@@ -2766,8 +2766,339 @@ search_logs() {
 }
 
 # ╭───────────────────────────────────────────────────────────────────╮
-# │ 🐳 DOCKER MANAGEMENT & MONITORING SYSTEM                        │
+# │ 🐳 DOCKER SERVICE & MANAGEMENT SYSTEM                           │
 # ╰───────────────────────────────────────────────────────────────────╯
+
+# Get Docker daemon status
+get_docker_daemon_status() {
+    local docker_status="Unknown"
+    local docker_version="Unknown"
+    local docker_running=false
+    
+    # Check if Docker command exists
+    if ! command -v docker &>/dev/null; then
+        echo "STATUS:NOT_INSTALLED"
+        echo "VERSION:N/A"
+        echo "RUNNING:false"
+        return 1
+    fi
+    
+    # Get Docker version
+    if docker_version=$(docker --version 2>/dev/null); then
+        docker_version=$(echo "$docker_version" | awk '{print $3}' | sed 's/,//')
+    fi
+    
+    # Check if Docker daemon is running
+    if docker info &>/dev/null 2>&1; then
+        docker_status="Running"
+        docker_running=true
+    else
+        docker_status="Stopped"
+        docker_running=false
+    fi
+    
+    echo "STATUS:$docker_status"
+    echo "VERSION:$docker_version"
+    echo "RUNNING:$docker_running"
+}
+
+# Start Docker service
+docker_service_start() {
+    log_info "🚀 Starting Docker service..."
+    
+    # Check current status first
+    if docker info &>/dev/null 2>&1; then
+        log_success "✅ Docker is already running"
+        return 0
+    fi
+    
+    # Detect OS and start Docker accordingly
+    if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
+        log_info "WSL detected - Please start Docker Desktop manually on Windows"
+        log_info "💡 Steps:"
+        log_info "  1. Open Docker Desktop on Windows"
+        log_info "  2. Wait for Docker to start"
+        log_info "  3. Return to this script"
+        
+        local wait_response
+        prompt_user "Press Enter when Docker Desktop is running..." wait_response
+        
+        # Verify Docker is now running
+        if docker info &>/dev/null 2>&1; then
+            log_success "✅ Docker is now running"
+            return 0
+        else
+            log_error "❌ Docker is still not running"
+            return 1
+        fi
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS
+        log_info "macOS detected - Starting Docker Desktop..."
+        open -a Docker
+        log_info "⏳ Waiting for Docker Desktop to start..."
+        
+        local attempts=0
+        while [[ $attempts -lt 30 ]]; do
+            if docker info &>/dev/null 2>&1; then
+                log_success "✅ Docker Desktop started successfully"
+                return 0
+            fi
+            sleep 2
+            ((attempts++))
+            echo -n "."
+        done
+        
+        log_error "❌ Docker Desktop failed to start within 60 seconds"
+        return 1
+    else
+        # Linux
+        log_info "Linux detected - Starting Docker service..."
+        
+        if command -v systemctl &>/dev/null; then
+            # systemd
+            if sudo systemctl start docker 2>/dev/null; then
+                log_success "✅ Docker service started via systemctl"
+                return 0
+            fi
+        elif command -v service &>/dev/null; then
+            # SysV init
+            if sudo service docker start 2>/dev/null; then
+                log_success "✅ Docker service started via service command"
+                return 0
+            fi
+        fi
+        
+        log_error "❌ Failed to start Docker service"
+        log_warn "Please start Docker manually or check your installation"
+        return 1
+    fi
+}
+
+# Stop Docker service
+docker_service_stop() {
+    log_info "🛑 Stopping Docker service..."
+    
+    # Check current status first
+    if ! docker info &>/dev/null 2>&1; then
+        log_warn "⚠️ Docker is already stopped"
+        return 0
+    fi
+    
+    # Ask for confirmation
+    echo
+    log_warn "⚠️ WARNING: This will stop ALL Docker containers and the Docker daemon"
+    if ! prompt_confirm "Are you sure you want to stop Docker service?"; then
+        log_info "Docker service stop cancelled"
+        return 1
+    fi
+    
+    # Detect OS and stop Docker accordingly
+    if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
+        log_info "WSL detected - Please stop Docker Desktop manually on Windows"
+        log_info "💡 Steps:"
+        log_info "  1. Right-click Docker Desktop icon in system tray"
+        log_info "  2. Select 'Quit Docker Desktop'"
+        log_info "  3. Return to this script"
+        
+        local wait_response
+        prompt_user "Press Enter when Docker Desktop is stopped..." wait_response
+        
+        # Verify Docker is now stopped
+        if ! docker info &>/dev/null 2>&1; then
+            log_success "✅ Docker is now stopped"
+            return 0
+        else
+            log_warn "⚠️ Docker appears to still be running"
+            return 1
+        fi
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS
+        log_info "macOS detected - Stopping Docker Desktop..."
+        osascript -e 'quit app "Docker"' 2>/dev/null || true
+        
+        log_info "⏳ Waiting for Docker Desktop to stop..."
+        local attempts=0
+        while [[ $attempts -lt 15 ]]; do
+            if ! docker info &>/dev/null 2>&1; then
+                log_success "✅ Docker Desktop stopped successfully"
+                return 0
+            fi
+            sleep 2
+            ((attempts++))
+            echo -n "."
+        done
+        
+        log_error "❌ Docker Desktop failed to stop within 30 seconds"
+        return 1
+    else
+        # Linux
+        log_info "Linux detected - Stopping Docker service..."
+        
+        if command -v systemctl &>/dev/null; then
+            # systemd
+            if sudo systemctl stop docker 2>/dev/null; then
+                log_success "✅ Docker service stopped via systemctl"
+                return 0
+            fi
+        elif command -v service &>/dev/null; then
+            # SysV init
+            if sudo service docker stop 2>/dev/null; then
+                log_success "✅ Docker service stopped via service command"
+                return 0
+            fi
+        fi
+        
+        log_error "❌ Failed to stop Docker service"
+        return 1
+    fi
+}
+
+# Restart Docker service
+docker_service_restart() {
+    log_info "🔄 Restarting Docker service..."
+    
+    # Stop first
+    if docker_service_stop; then
+        sleep 3
+        # Then start
+        docker_service_start
+    else
+        log_error "❌ Failed to restart Docker service (stop phase failed)"
+        return 1
+    fi
+}
+
+# Force kill Docker (emergency stop)
+docker_service_force_kill() {
+    log_warn "💥 FORCE KILLING Docker processes..."
+    echo
+    log_warn "⚠️ DANGER: This is an emergency action that may cause data loss!"
+    log_warn "⚠️ Only use this if Docker is completely unresponsive!"
+    echo
+    
+    if ! prompt_confirm "Are you ABSOLUTELY sure you want to force kill Docker?"; then
+        log_info "Force kill cancelled"
+        return 1
+    fi
+    
+    log_info "🔪 Force killing Docker processes..."
+    
+    # Kill Docker processes
+    if [[ -n "${WSL_DISTRO_NAME:-}" ]] || [[ "$OSTYPE" == "darwin"* ]]; then
+        log_warn "⚠️ Cannot force kill Docker Desktop from WSL/macOS terminal"
+        log_info "💡 Manual steps:"
+        log_info "  1. Open Task Manager (Windows) or Activity Monitor (macOS)"
+        log_info "  2. Find and kill Docker Desktop processes"
+        log_info "  3. Restart your system if necessary"
+    else
+        # Linux - kill Docker processes
+        local killed=false
+        
+        # Kill dockerd
+        if pgrep dockerd >/dev/null; then
+            sudo pkill -9 dockerd && killed=true
+            log_info "🔪 Killed dockerd process"
+        fi
+        
+        # Kill docker-containerd
+        if pgrep docker-containerd >/dev/null; then
+            sudo pkill -9 docker-containerd && killed=true
+            log_info "🔪 Killed docker-containerd process"
+        fi
+        
+        # Kill docker-runc
+        if pgrep docker-runc >/dev/null; then
+            sudo pkill -9 docker-runc && killed=true
+            log_info "🔪 Killed docker-runc process"
+        fi
+        
+        if [[ "$killed" == "true" ]]; then
+            log_success "✅ Docker processes force killed"
+            log_info "💡 You may need to restart Docker service manually"
+        else
+            log_warn "⚠️ No Docker processes found to kill"
+        fi
+    fi
+}
+
+# Docker Service Management Menu
+docker_service_management() {
+    while true; do
+        clear
+        echo -e "${COLOR_CYAN}╭─────────────────────────────────────────────────────────────────────────────╮${COLOR_RESET}"
+        echo -e "${COLOR_CYAN}│                        🐳 DOCKER SERVICE CONTROL 🐳                        │${COLOR_RESET}"
+        echo -e "${COLOR_CYAN}╰─────────────────────────────────────────────────────────────────────────────╯${COLOR_RESET}"
+        echo
+        
+        # Get and display Docker daemon status
+        local docker_daemon_info
+        if docker_daemon_info=$(get_docker_daemon_status 2>/dev/null); then
+            local docker_status docker_version docker_running
+            
+            docker_status=$(echo "$docker_daemon_info" | grep "STATUS:" | cut -d':' -f2)
+            docker_version=$(echo "$docker_daemon_info" | grep "VERSION:" | cut -d':' -f2)
+            docker_running=$(echo "$docker_daemon_info" | grep "RUNNING:" | cut -d':' -f2)
+            
+            echo -e "  ${COLOR_YELLOW}🔍 DOCKER DAEMON STATUS${COLOR_RESET}"
+            
+            # Status indicator
+            if [[ "$docker_running" == "true" ]]; then
+                echo -e "    Service Status     : ${COLOR_GREEN}🟢 $docker_status${COLOR_RESET}"
+            else
+                echo -e "    Service Status     : ${COLOR_RED}🔴 $docker_status${COLOR_RESET}"
+            fi
+            
+            echo -e "    Docker Version     : ${COLOR_CYAN}$docker_version${COLOR_RESET}"
+            
+            # Additional info if running
+            if [[ "$docker_running" == "true" ]]; then
+                local uptime_info
+                if uptime_info=$(docker system info 2>/dev/null | grep -i "kernel version\|operating system\|server version" | head -3); then
+                    echo -e "    System Info        : ${COLOR_GREEN}Connected${COLOR_RESET}"
+                else
+                    echo -e "    System Info        : ${COLOR_YELLOW}Limited Access${COLOR_RESET}"
+                fi
+            else
+                echo -e "    System Info        : ${COLOR_RED}Unavailable${COLOR_RESET}"
+            fi
+            echo
+        else
+            echo -e "  ${COLOR_RED}❌ Docker daemon status unavailable${COLOR_RESET}"
+            echo
+        fi
+        
+        echo -e "  ${COLOR_CYAN}🎛️ SERVICE CONTROL${COLOR_RESET}"
+        echo -e "    ${COLOR_CYAN}[1]${COLOR_RESET} 🚀 Start Docker Service      ${COLOR_CYAN}[2]${COLOR_RESET} 🛑 Stop Docker Service"
+        echo -e "    ${COLOR_CYAN}[3]${COLOR_RESET} 🔄 Restart Docker Service    ${COLOR_CYAN}[4]${COLOR_RESET} 💥 Force Kill Docker (Emergency)"
+        echo
+        echo -e "  ${COLOR_CYAN}📊 MONITORING${COLOR_RESET}"
+        echo -e "    ${COLOR_CYAN}[5]${COLOR_RESET} 🔄 Refresh Status            ${COLOR_CYAN}[6]${COLOR_RESET} 📋 Show Docker Info"
+        echo
+        echo -e "    ${COLOR_CYAN}[0]${COLOR_RESET} 🔙 Back to Docker Management"
+        echo
+        
+        local choice
+        prompt_user "Select Docker Service Option: " choice
+        echo
+        
+        local should_pause=false
+        case "$choice" in
+            1) docker_service_start && should_pause=true ;;
+            2) docker_service_stop && should_pause=true ;;
+            3) docker_service_restart && should_pause=true ;;
+            4) docker_service_force_kill && should_pause=true ;;
+            5) log_info "🔄 Refreshing Docker daemon status..."; sleep 1 ;;
+            6) docker_system_information && should_pause=true ;;
+            0) return ;;
+            *) log_error "Invalid option. Please try again." ; should_pause=true ;;
+        esac
+        
+        if [ "$should_pause" = true ]; then
+            echo
+            prompt_user "Press Enter to continue..." "dummy_var"
+        fi
+    done
+}
 
 # Get real-time Docker system information
 get_docker_system_info() {
@@ -2912,13 +3243,34 @@ docker_management_menu() {
         # Display container status
         display_docker_container_status
         
+        # Add Docker Service Status Indicator (compact)
+        echo -e "  ${COLOR_YELLOW}🐳 DOCKER SERVICE STATUS${COLOR_RESET}"
+        local docker_daemon_status
+        if docker_daemon_status=$(get_docker_daemon_status 2>/dev/null); then
+            local docker_running=$(echo "$docker_daemon_status" | grep "RUNNING:" | cut -d':' -f2)
+            local docker_version=$(echo "$docker_daemon_status" | grep "VERSION:" | cut -d':' -f2)
+            
+            if [[ "$docker_running" == "true" ]]; then
+                echo -e "    Service: ${COLOR_GREEN}🟢 Running${COLOR_RESET} | Version: ${COLOR_CYAN}$docker_version${COLOR_RESET}"
+            else
+                echo -e "    Service: ${COLOR_RED}🔴 Stopped${COLOR_RESET} | Version: ${COLOR_CYAN}$docker_version${COLOR_RESET}"
+            fi
+        else
+            echo -e "    Service: ${COLOR_RED}🔴 Not Available${COLOR_RESET}"
+        fi
+        echo
+        
+        echo -e "  ${COLOR_CYAN}🎛️ DOCKER SERVICE CONTROL${COLOR_RESET}"
+        echo -e "    ${COLOR_CYAN}[DS]${COLOR_RESET} 🐳 Docker Service Management"
+        echo
+        
         echo -e "  ${COLOR_CYAN}🎛️ CONTAINER MANAGEMENT${COLOR_RESET}"
         echo -e "    ${COLOR_CYAN}[1]${COLOR_RESET} ▶️ Start Container(s)       ${COLOR_CYAN}[2]${COLOR_RESET} ⏹️ Stop Container(s)"
         echo -e "    ${COLOR_CYAN}[3]${COLOR_RESET} 🔄 Restart Container(s)     ${COLOR_CYAN}[4]${COLOR_RESET} ⏸️ Pause/Unpause Container(s)"
         echo -e "    ${COLOR_CYAN}[5]${COLOR_RESET} 🗑️ Remove Container(s)      ${COLOR_CYAN}[6]${COLOR_RESET} 📊 Container Details"
         echo
-        echo -e "  ${COLOR_CYAN}🧹 CLEANUP & MAINTENANCE${COLOR_RESET}"
-        echo -e "    ${COLOR_CYAN}[7]${COLOR_RESET} 🧽 Quick Cleanup           ${COLOR_CYAN}[8]${COLOR_RESET} 🗑️ Deep System Cleanup"
+        echo -e "  ${COLOR_CYAN}🧽 CLEANUP & MAINTENANCE${COLOR_RESET}"
+        echo -e "    ${COLOR_CYAN}[7]${COLOR_RESET} 🧽 Quick Cleanup            ${COLOR_CYAN}[8]${COLOR_RESET} 🗑️ Deep System Cleanup"
         echo -e "    ${COLOR_CYAN}[9]${COLOR_RESET} 📦 Image Management         ${COLOR_CYAN}[10]${COLOR_RESET} 💾 Volume Management"
         echo
         echo -e "  ${COLOR_CYAN}📊 MONITORING & INFO${COLOR_RESET}"
@@ -2934,6 +3286,7 @@ docker_management_menu() {
         
         local should_pause=false
         case "$choice" in
+            [dD][sS]) docker_service_management ;; # Docker Service Management - no pause, has own loop
             1) docker_start_containers && should_pause=true ;;
             2) docker_stop_containers && should_pause=true ;;
             3) docker_restart_containers && should_pause=true ;;
