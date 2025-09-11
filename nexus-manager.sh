@@ -4525,11 +4525,15 @@ show_auto_refresh_countdown() {
             printf "\n\n"
             printf "${COLOR_PURPLE} ❔ Question    >${COLOR_RESET} Choose Option: "
             
-            # Get the rest of input (ignore Enter key for refresh)
+            # Get the rest of input (show prompt for Enter key)
             if [[ "$user_input" == $'\n' || "$user_input" == "" ]]; then
-                # User pressed Enter - ignore it, don't refresh
-                printf "\r${COLOR_CYAN}ℹ️  Auto-refresh:${COLOR_RESET} ${COLOR_GREEN}ON${COLOR_RESET} (${COLOR_YELLOW}%ds${COLOR_RESET}) | Running nodes: ${COLOR_GREEN}%d${COLOR_RESET} | ${COLOR_YELLOW}Press any key for menu${COLOR_RESET}" "$countdown" "$running_count"
-                continue
+                # User pressed Enter - show question prompt
+                printf "\n\n"
+                local enter_choice
+                prompt_user "Choose Option: " enter_choice
+                eval "$choice_var='$enter_choice'"
+                echo
+                return 0  # User provided input
             else
                 # User started typing - get the rest of input
                 local rest_input
@@ -4619,9 +4623,25 @@ main() {
             [aA]) docker_prune && should_pause=true ;;
             0) log_info "Exiting program."; exit 0 ;;
             "") 
-                # Empty choice (just Enter pressed) - ignore it
-                log_warn "Please select a valid option."
-                sleep 1
+                # Empty choice (just Enter pressed) - show question prompt only
+                echo
+                local new_choice
+                prompt_user "Choose Option: " new_choice
+                echo
+                # Process the new choice immediately
+                case "$new_choice" in
+                    1) build_image_interactive && should_pause=true ;;
+                    2) build_image_latest && should_pause=true ;;
+                    3) manage_instances_menu ;;
+                    4) node_control_menu ;;
+                    5) environment_config_menu ;;
+                    6) view_node_logs ;;
+                    7) backup_restore_menu ;;
+                    [aA]) docker_prune && should_pause=true ;;
+                    0) log_info "Exiting program."; exit 0 ;;
+                    "") log_info "No option selected." ;;
+                    *) log_error "Invalid option. Please try again." ; should_pause=true ;;
+                esac
                 ;;
             *) log_error "Invalid option. Please try again." ; should_pause=true ;;
         esac
