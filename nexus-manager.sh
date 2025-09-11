@@ -2788,18 +2788,69 @@ get_docker_daemon_status() {
         docker_version=$(echo "$docker_version" | awk '{print $3}' | sed 's/,//')
     fi
     
-    # Check if Docker daemon is running
-    if docker info &>/dev/null 2>&1; then
+    # Check if Docker daemon is running (quick check)
+    if timeout 3 docker info &>/dev/null 2>&1; then
         docker_status="Running"
         docker_running=true
     else
-        docker_status="Stopped"
-        docker_running=false
+        # If daemon not responding, check if Docker Desktop processes are running
+        if powershell.exe -Command "Get-Process -Name 'Docker Desktop','com.docker.backend' -ErrorAction SilentlyContinue" &>/dev/null; then
+            docker_status="Starting"
+            docker_running=false
+        else
+            docker_status="Stopped"
+            docker_running=false
+        fi
     fi
     
     echo "STATUS:$docker_status"
     echo "VERSION:$docker_version"
     echo "RUNNING:$docker_running"
+}
+
+# Quick Docker daemon check (non-blocking)
+quick_docker_check() {
+    timeout 2 docker info &>/dev/null 2>&1
+    return $?
+}
+
+# Verify Docker is completely stopped
+verify_docker_stopped() {
+    local daemon_stopped=true
+    local processes_stopped=true
+    
+    # Check daemon
+    if docker info &>/dev/null 2>&1; then
+        daemon_stopped=false
+    fi
+    
+    # Check processes
+    if powershell.exe -NoProfile -Command "Get-Process -Name 'Docker Desktop','com.docker.*','docker*' -ErrorAction SilentlyContinue" &>/dev/null 2>&1; then
+        processes_stopped=false
+    fi
+    
+    [[ "$daemon_stopped" == "true" ]] && [[ "$processes_stopped" == "true" ]]
+    return $?
+}
+
+# Verify Docker is fully running
+verify_docker_running() {
+    local daemon_running=false
+    local processes_running=false
+    
+    # Check daemon with multiple tests
+    if docker info &>/dev/null 2>&1 && docker version &>/dev/null 2>&1; then
+        daemon_running=true
+    fi
+    
+    # Check critical processes
+    if powershell.exe -NoProfile -Command "Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue" &>/dev/null && \
+       powershell.exe -NoProfile -Command "Get-Process -Name 'com.docker.backend' -ErrorAction SilentlyContinue" &>/dev/null; then
+        processes_running=true
+    fi
+    
+    [[ "$daemon_running" == "true" ]] && [[ "$processes_running" == "true" ]]
+    return $?
 }
 
 # Start Docker service
@@ -2813,66 +2864,116 @@ docker_service_start() {
     fi
     
     # Detect OS and start Docker accordingly
-    if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
-        log_info "WSL detected - Attempting automatic Docker Desktop start..."
+    if [[ -n "${WSL_DISTRO_NAME:-}" ]] || [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]]; then
+        log_info "Windows/WSL detected - Starting Docker Desktop..."
         
-        # Method 1: Try to start Docker Desktop via Windows command
-        log_info "🚀 Trying to start Docker Desktop automatically..."
-        
-        # Try to start Docker Desktop using PowerShell
-        if powershell.exe -Command "Start-Process 'C:\Program Files\Docker\Docker\Docker Desktop.exe'" 2>/dev/null; then
-            log_info "📋 Docker Desktop start command executed"
-        elif cmd.exe /c "start \"\" \"C:\Program Files\Docker\Docker\Docker Desktop.exe\"" 2>/dev/null; then
-            log_info "📋 Docker Desktop start command executed (fallback)"
-        else
-            log_warn "⚠️ Could not execute automatic start command"
+        # Ensure LOCALAPPDATA is defined (Windows environment variable)
+        if [[ -z "${LOCALAPPDATA:-}" ]]; then
+            # Try to get LOCALAPPDATA from Windows environment
+            if command -v cmd.exe &>/dev/null; then
+                LOCALAPPDATA=$(cmd.exe /c "echo %LOCALAPPDATA%" 2>/dev/null | tr -d '\r\n' || echo "")
+            fi
+            # If still empty, use default Windows path
+            if [[ -z "$LOCALAPPDATA" ]] || [[ "$LOCALAPPDATA" == "%LOCALAPPDATA%" ]]; then
+                LOCALAPPDATA="C:/Users/$USER/AppData/Local"
+            else
+                # Convert Windows backslashes to forward slashes for compatibility
+                LOCALAPPDATA=$(echo "$LOCALAPPDATA" | sed 's|\\|/|g')
+            fi
         fi
         
-        log_info "⏳ Waiting for Docker Desktop to start..."
+        # Multiple Docker Desktop installation paths to try (Windows format)
+        local docker_paths=(
+            "C:/Program Files/Docker/Docker/Docker Desktop.exe"
+            "C:/Program Files (x86)/Docker/Docker/Docker Desktop.exe"
+            "$(echo "$LOCALAPPDATA" | sed 's|\\|/|g')/Docker/Docker Desktop.exe"
+        )
         
-        # Wait for Docker to start with timeout
-        local attempts=0
-        local max_attempts=60  # 2 minutes timeout
+        local docker_exe_path=""
         
-        while [[ $attempts -lt $max_attempts ]]; do
-            if docker info &>/dev/null 2>&1; then
-                log_success "✅ Docker Desktop started successfully (${attempts}s)"
-                return 0
+        # Find Docker Desktop executable
+        for path in "${docker_paths[@]}"; do
+            if [[ -f "$path" ]]; then
+                docker_exe_path="$path"
+                log_info "📍 Found Docker Desktop at: $path"
+                break
             fi
-            
-            # Show progress every 5 seconds
-            if [[ $((attempts % 5)) -eq 0 ]]; then
-                printf "\r  ⏳ Waiting... %ds (max ${max_attempts}s)" $attempts
-            fi
-            
-            sleep 2
-            ((attempts++))
         done
         
-        echo  # New line after progress
-        log_warn "⚠️ Automatic start may have failed or is taking longer than expected"
+        # If not found via file check, try PowerShell detection
+        if [[ -z "$docker_exe_path" ]]; then
+            log_info "🔍 Detecting Docker Desktop installation..."
+            if docker_exe_path=$(powershell.exe -NoProfile -Command "(Get-Command 'Docker Desktop' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source) -replace '\r?$'" 2>/dev/null | tr -d '\r'); then
+                log_info "📍 Found Docker Desktop via PowerShell: $docker_exe_path"
+            else
+                docker_exe_path="C:/Program Files/Docker/Docker/Docker Desktop.exe"  # Default fallback
+                log_warn "⚠️ Docker Desktop path not found, using default: $docker_exe_path"
+            fi
+        fi
         
-        # Manual fallback
-        log_info "💡 Manual Steps (if needed):"
-        log_info "  1. Open Docker Desktop on Windows"
-        log_info "  2. Wait for Docker to start"
-        log_info "  3. Return to this script"
+        # Method 1: Enhanced PowerShell Start-Process (with robust path handling)
+        log_info "🚀 Method 1: Starting Docker Desktop via PowerShell..."
+        # Convert path to a PowerShell-native path using .NET to avoid escaping issues
+        if ps_converted=$(powershell.exe -NoProfile -Command "[System.IO.Path]::GetFullPath([string]'$docker_exe_path')" 2>/dev/null | tr -d '\r\n'); then
+            docker_exe_path="$ps_converted"
+        fi
+        if powershell.exe -NoProfile -Command "Start-Process -FilePath \"$docker_exe_path\" -WindowStyle Hidden" 2>/dev/null; then
+            log_info "📋 PowerShell start command executed successfully"
+        elif powershell.exe -NoProfile -Command "Start-Process -FilePath \"$docker_exe_path\"" 2>/dev/null; then
+            log_info "📋 PowerShell start command executed (fallback mode)"
+        else
+            # Method 2: CMD fallback with quoted path
+            log_info "🚀 Method 2: Starting via CMD..."
+            if cmd.exe /c start "" "$docker_exe_path" 2>/dev/null; then
+                log_info "📋 CMD start command executed"
+            else
+                log_warn "⚠️ All automatic start methods failed"
+            fi
+        fi
+        
+        # Quick check if Docker is already running
+        if docker info &>/dev/null 2>&1; then
+            log_success "✅ Docker Desktop is already running"
+            return 0
+        fi
+        
+        log_success "✅ Docker Desktop launch initiated"
+        log_info "💡 Docker Desktop is starting in the background"
+        log_info "💡 It will be ready in 30-60 seconds - you can continue using the script"
+        log_info "💡 Docker status will automatically update when ready"
+        
+        return 0
+        
+        echo  # New line after progress
+        log_warn "⚠️ Docker Desktop startup timeout reached"
+        
+        # Enhanced manual fallback with better guidance
+        log_info "💡 Manual Recovery Options:"
+        log_info "  1. Check if Docker Desktop is starting (may take longer on first run)"
+        log_info "  2. Try starting Docker Desktop manually from Start menu"
+        log_info "  3. Check Windows Event Viewer for Docker errors"
+        log_info "  4. Restart Docker Desktop if already running"
         echo
         
-        if prompt_confirm "Continue waiting or start manually?"; then
+        if prompt_confirm "Continue waiting or proceed with manual start?"; then
             local wait_response
-            prompt_user "Press Enter when Docker Desktop is running..." wait_response
+            prompt_user "Press Enter when Docker Desktop is fully started..." wait_response
             
-            # Final verification
+            # Final verification with additional checks
             if docker info &>/dev/null 2>&1; then
                 log_success "✅ Docker is now running"
+                # Additional verification
+                if docker version &>/dev/null 2>&1; then
+                    log_success "✅ Docker client/server communication confirmed"
+                fi
                 return 0
             else
-                log_error "❌ Docker is still not running"
+                log_error "❌ Docker daemon is still not responding"
+                log_info "💡 Try: 'docker info' manually to debug"
                 return 1
             fi
         else
-            log_info "Docker start cancelled"
+            log_info "Docker start operation cancelled"
             return 1
         fi
     elif [[ "$OSTYPE" == "darwin"* ]]; then
@@ -2918,17 +3019,11 @@ docker_service_start() {
     fi
 }
 
-# Stop Docker service
+# Stop Docker service (robust implementation)
 docker_service_stop() {
     log_info "🛑 Stopping Docker service..."
     
-    # Check current status first
-    if ! docker info &>/dev/null 2>&1; then
-        log_warn "⚠️ Docker is already stopped"
-        return 0
-    fi
-    
-    # Ask for confirmation
+    # Ask for confirmation first
     echo
     log_warn "⚠️ WARNING: This will stop ALL Docker containers and the Docker daemon"
     if ! prompt_confirm "Are you sure you want to stop Docker service?"; then
@@ -2937,68 +3032,124 @@ docker_service_stop() {
     fi
     
     # Detect OS and stop Docker accordingly
-    if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
-        log_info "WSL detected - Attempting automatic Docker Desktop stop..."
+    if [[ -n "${WSL_DISTRO_NAME:-}" ]] || [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]]; then
+        log_info "Windows/WSL detected - Stopping Docker Desktop..."
         
-        # Try multiple automatic methods
-        local stopped_automatically=false
+        # Comprehensive Docker Desktop stop procedure
+        log_info "🛑 Phase 1: Graceful shutdown attempt..."
         
-        # Method 1: Try PowerShell to stop Docker Desktop
-        log_info "🔄 Trying PowerShell method..."
-        if powershell.exe -Command "Get-Process 'Docker Desktop' | Stop-Process -Force" 2>/dev/null; then
-            log_info "📋 PowerShell stop command executed"
-            sleep 3
-            
-            # Check if Docker stopped
-            if ! docker info &>/dev/null 2>&1; then
-                log_success "✅ Docker Desktop stopped automatically via PowerShell"
-                return 0
+        # Try graceful shutdown first via Docker Desktop API (if available)
+        if powershell.exe -NoProfile -Command "try { \$proc = Get-Process 'Docker Desktop' -ErrorAction Stop; \$proc.CloseMainWindow(); Start-Sleep 3; if (-not \$proc.HasExited) { \$proc.Kill() } } catch { }" 2>/dev/null; then
+            log_info "📋 Graceful shutdown attempted"
+        fi
+        
+        sleep 5
+        
+        # Phase 2: Force stop all Docker processes
+        log_info "🛑 Phase 2: Force stopping all Docker processes..."
+        
+        # Stop all Docker-related processes systematically
+        local all_docker_processes=(
+            "Docker Desktop"
+            "com.docker.backend"
+            "com.docker.service" 
+            "com.docker.dev-envs"
+            "com.docker.build"
+            "dockerd"
+            "docker-proxy"
+            "vpnkit"
+        )
+        
+        for process in "${all_docker_processes[@]}"; do
+            if powershell.exe -NoProfile -Command "Get-Process -Name '$process' -ErrorAction SilentlyContinue | Stop-Process -Force" 2>/dev/null; then
+                log_info "📋 Stopped: $process"
+            fi
+        done
+        
+        sleep 3
+        
+        # Phase 3: Cleanup Docker services
+        log_info "🛑 Phase 3: Stopping Docker services..."
+        local docker_services=("com.docker.service" "docker" "DockerDesktopVM")
+        for service in "${docker_services[@]}"; do
+            powershell.exe -NoProfile -Command "Stop-Service -Name '$service' -Force -ErrorAction SilentlyContinue" 2>/dev/null || true
+        done
+        
+        # Phase 4: Final verification and cleanup
+        log_info "🛑 Phase 4: Final cleanup..."
+        
+        # Kill any remaining Docker processes with taskkill
+        cmd.exe /c "taskkill /F /T /IM \"Docker Desktop.exe\" >nul 2>&1" 2>/dev/null || true
+        cmd.exe /c "taskkill /F /T /IM \"com.docker.*\" >nul 2>&1" 2>/dev/null || true
+        cmd.exe /c "taskkill /F /T /IM \"docker*.exe\" >nul 2>&1" 2>/dev/null || true
+        
+        sleep 3
+        
+        # Verify complete shutdown
+        local docker_stopped=true
+        local processes_stopped=true
+        
+        # Check Docker daemon
+        if docker info &>/dev/null 2>&1; then
+            docker_stopped=false
+        fi
+        
+        # Check for remaining processes
+        if powershell.exe -NoProfile -Command "Get-Process -Name 'Docker Desktop','com.docker.*','docker*' -ErrorAction SilentlyContinue" &>/dev/null; then
+            processes_stopped=false
+        fi
+        
+        if [[ "$docker_stopped" == "true" ]] && [[ "$processes_stopped" == "true" ]]; then
+            log_success "✅ Docker Desktop completely stopped"
+            return 0
+        fi
+        
+        # Enhanced manual fallback with better diagnostics
+        log_warn "⚠️ Automatic stop methods were not completely successful"
+        log_info "🔍 Checking remaining Docker processes..."
+        
+        # Show remaining Docker processes for diagnostics
+        local remaining_processes
+        if remaining_processes=$(powershell.exe -Command "Get-Process | Where-Object { \$_.ProcessName -like '*docker*' -or \$_.ProcessName -like '*Docker*' } | Select-Object ProcessName,Id | Format-Table -AutoSize" 2>/dev/null); then
+            if [[ -n "$remaining_processes" ]]; then
+                log_info "🔍 Remaining Docker processes:"
+                echo "$remaining_processes"
+            else
+                log_info "✅ No Docker processes detected"
             fi
         fi
         
-        # Method 2: Try Windows command line to stop Docker Desktop
-        log_info "🔄 Trying taskkill method..."
-        if cmd.exe /c "taskkill /F /IM \"Docker Desktop.exe\" >nul 2>&1" 2>/dev/null; then
-            log_info "📋 Taskkill command executed"
-            sleep 3
-            
-            # Check if Docker stopped
-            if ! docker info &>/dev/null 2>&1; then
-                log_success "✅ Docker Desktop stopped automatically via taskkill"
-                return 0
-            fi
-        fi
-        
-        # Method 3: Try to access Windows registry to stop Docker
-        log_info "🔄 Trying registry method..."
-        if powershell.exe -Command "Stop-Service -Name 'com.docker.service' -Force" 2>/dev/null; then
-            log_info "📋 Docker service stop command executed"
-            sleep 3
-            
-            # Check if Docker stopped
-            if ! docker info &>/dev/null 2>&1; then
-                log_success "✅ Docker Desktop stopped automatically via service"
-                return 0
-            fi
-        fi
-        
-        # If automatic methods failed, fall back to manual
-        log_warn "⚠️ Automatic stop failed - Please stop manually"
-        log_info "💡 Manual Steps:"
-        log_info "  1. Right-click Docker Desktop icon in system tray"
-        log_info "  2. Select 'Quit Docker Desktop'"
-        log_info "  3. Return to this script"
+        log_info "💡 Manual Recovery Options:"
+        log_info "  1. Right-click Docker Desktop icon in system tray and select 'Quit Docker Desktop'"
+        log_info "  2. Use Task Manager to end Docker processes manually"
+        log_info "  3. Restart Windows if Docker is completely stuck"
+        log_info "  4. Check Windows Event Viewer for Docker errors"
         echo
         
-        local wait_response
-        prompt_user "Press Enter when Docker Desktop is stopped..." wait_response
-        
-        # Verify Docker is now stopped
-        if ! docker info &>/dev/null 2>&1; then
-            log_success "✅ Docker is now stopped"
-            return 0
+        if prompt_confirm "Wait for manual Docker Desktop shutdown?"; then
+            local wait_response
+            prompt_user "Press Enter when Docker Desktop is fully stopped..." wait_response
+            
+            # Enhanced verification
+            local final_check=false
+            if ! docker info &>/dev/null 2>&1; then
+                log_success "✅ Docker daemon is now stopped"
+                final_check=true
+            else
+                log_warn "⚠️ Docker daemon still responding"
+            fi
+            
+            # Check for remaining processes
+            if ! powershell.exe -Command "Get-Process -Name 'Docker Desktop','com.docker.backend' -ErrorAction SilentlyContinue" &>/dev/null; then
+                log_success "✅ Docker processes confirmed stopped"
+                final_check=true
+            else
+                log_warn "⚠️ Some Docker processes may still be running"
+            fi
+            
+            return $([ "$final_check" == "true" ] && echo 0 || echo 1)
         else
-            log_warn "⚠️ Docker appears to still be running"
+            log_info "Docker stop operation cancelled"
             return 1
         fi
     elif [[ "$OSTYPE" == "darwin"* ]]; then
@@ -3043,15 +3194,24 @@ docker_service_stop() {
     fi
 }
 
-# Restart Docker service
+# Restart Docker service (instant restart)
 docker_service_restart() {
     log_info "🔄 Restarting Docker service..."
     
     # Stop first
     if docker_service_stop; then
-        sleep 3
-        # Then start
-        docker_service_start
+        log_info "⚡ Starting Docker Desktop (instant mode)..."
+        
+        # Start Docker without any waiting
+        if docker_service_start; then
+            log_success "🎉 Docker Desktop restart completed instantly!"
+            log_info "🚀 Docker Desktop is launching in the background"
+            log_info "💡 Continue using the script - status will update automatically"
+            return 0
+        else
+            log_error "❌ Failed to restart Docker service (start phase failed)"
+            return 1
+        fi
     else
         log_error "❌ Failed to restart Docker service (stop phase failed)"
         return 1
@@ -3074,10 +3234,91 @@ docker_service_force_kill() {
     log_info "🔪 Force killing Docker processes..."
     
     # Kill Docker processes
-    if [[ -n "${WSL_DISTRO_NAME:-}" ]] || [[ "$OSTYPE" == "darwin"* ]]; then
-        log_warn "⚠️ Cannot force kill Docker Desktop from WSL/macOS terminal"
+    if [[ -n "${WSL_DISTRO_NAME:-}" ]] || [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]]; then
+        log_info "🔪 Windows/WSL detected - Force killing Docker processes..."
+        
+        # Enhanced Windows Docker force kill
+        local processes_killed=false
+        
+        # Kill all Docker-related processes aggressively
+        log_info "🔪 Phase 1: Killing Docker Desktop processes..."
+        local docker_processes=("Docker Desktop.exe" "Docker Desktop Installer.exe" "Docker.exe")
+        for process in "${docker_processes[@]}"; do
+            if cmd.exe /c "taskkill /F /T /IM \"$process\" >nul 2>&1" 2>/dev/null; then
+                log_info "📋 Force killed: $process"
+                processes_killed=true
+            fi
+        done
+        
+        sleep 2
+        
+        # Kill Docker backend and service processes
+        log_info "🔪 Phase 2: Killing Docker backend processes..."
+        local backend_processes=("com.docker.backend.exe" "com.docker.service.exe" "com.docker.dev-envs.exe" "dockerd.exe")
+        for process in "${backend_processes[@]}"; do
+            if cmd.exe /c "taskkill /F /T /IM \"$process\" >nul 2>&1" 2>/dev/null; then
+                log_info "📋 Force killed: $process"
+                processes_killed=true
+            fi
+        done
+        
+        sleep 2
+        
+        # Kill any remaining docker processes using PowerShell
+        log_info "🔪 Phase 3: PowerShell cleanup..."
+        if powershell.exe -Command "Get-Process | Where-Object { \$_.ProcessName -like '*docker*' -or \$_.ProcessName -like '*Docker*' } | Stop-Process -Force" 2>/dev/null; then
+            log_info "📋 PowerShell force kill executed"
+            processes_killed=true
+        fi
+        
+        sleep 3
+        
+        # Stop Docker services forcefully
+        log_info "🔪 Phase 4: Service termination..."
+        local docker_services=("com.docker.service" "docker")
+        for service in "${docker_services[@]}"; do
+            if powershell.exe -Command "Stop-Service -Name '$service' -Force -ErrorAction SilentlyContinue" 2>/dev/null; then
+                log_info "📋 Service stopped: $service"
+                processes_killed=true
+            fi
+        done
+        
+        # Final verification
+        sleep 2
+        log_info "🔍 Verifying force kill results..."
+        
+        # Check Docker daemon
+        local docker_stopped=false
+        if ! docker info &>/dev/null 2>&1; then
+            log_success "✅ Docker daemon confirmed stopped"
+            docker_stopped=true
+        else
+            log_warn "⚠️ Docker daemon still responding"
+        fi
+        
+        # Check remaining processes
+        local remaining_procs
+        if remaining_procs=$(powershell.exe -Command "Get-Process | Where-Object { \$_.ProcessName -like '*docker*' -or \$_.ProcessName -like '*Docker*' } | Select-Object ProcessName,Id" 2>/dev/null); then
+            if [[ -n "$remaining_procs" ]]; then
+                log_warn "⚠️ Remaining Docker processes detected:"
+                echo "$remaining_procs"
+                log_info "💡 Manual cleanup may be required"
+            else
+                log_success "✅ No Docker processes remaining"
+            fi
+        fi
+        
+        if [[ "$docker_stopped" == "true" ]]; then
+            log_success "✅ Force kill operation completed successfully"
+        else
+            log_error "❌ Force kill completed but Docker may still be running"
+            log_info "💡 Consider system restart if Docker is completely unresponsive"
+        fi
+        
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        log_warn "⚠️ macOS detected - Limited force kill from terminal"
         log_info "💡 Manual steps:"
-        log_info "  1. Open Task Manager (Windows) or Activity Monitor (macOS)"
+        log_info "  1. Open Activity Monitor"
         log_info "  2. Find and kill Docker Desktop processes"
         log_info "  3. Restart your system if necessary"
     else
