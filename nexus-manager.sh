@@ -2814,21 +2814,65 @@ docker_service_start() {
     
     # Detect OS and start Docker accordingly
     if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
-        log_info "WSL detected - Please start Docker Desktop manually on Windows"
-        log_info "💡 Steps:"
+        log_info "WSL detected - Attempting automatic Docker Desktop start..."
+        
+        # Method 1: Try to start Docker Desktop via Windows command
+        log_info "🚀 Trying to start Docker Desktop automatically..."
+        
+        # Try to start Docker Desktop using PowerShell
+        if powershell.exe -Command "Start-Process 'C:\Program Files\Docker\Docker\Docker Desktop.exe'" 2>/dev/null; then
+            log_info "📋 Docker Desktop start command executed"
+        elif cmd.exe /c "start \"\" \"C:\Program Files\Docker\Docker\Docker Desktop.exe\"" 2>/dev/null; then
+            log_info "📋 Docker Desktop start command executed (fallback)"
+        else
+            log_warn "⚠️ Could not execute automatic start command"
+        fi
+        
+        log_info "⏳ Waiting for Docker Desktop to start..."
+        
+        # Wait for Docker to start with timeout
+        local attempts=0
+        local max_attempts=60  # 2 minutes timeout
+        
+        while [[ $attempts -lt $max_attempts ]]; do
+            if docker info &>/dev/null 2>&1; then
+                log_success "✅ Docker Desktop started successfully (${attempts}s)"
+                return 0
+            fi
+            
+            # Show progress every 5 seconds
+            if [[ $((attempts % 5)) -eq 0 ]]; then
+                printf "\r  ⏳ Waiting... %ds (max ${max_attempts}s)" $attempts
+            fi
+            
+            sleep 2
+            ((attempts++))
+        done
+        
+        echo  # New line after progress
+        log_warn "⚠️ Automatic start may have failed or is taking longer than expected"
+        
+        # Manual fallback
+        log_info "💡 Manual Steps (if needed):"
         log_info "  1. Open Docker Desktop on Windows"
         log_info "  2. Wait for Docker to start"
         log_info "  3. Return to this script"
+        echo
         
-        local wait_response
-        prompt_user "Press Enter when Docker Desktop is running..." wait_response
-        
-        # Verify Docker is now running
-        if docker info &>/dev/null 2>&1; then
-            log_success "✅ Docker is now running"
-            return 0
+        if prompt_confirm "Continue waiting or start manually?"; then
+            local wait_response
+            prompt_user "Press Enter when Docker Desktop is running..." wait_response
+            
+            # Final verification
+            if docker info &>/dev/null 2>&1; then
+                log_success "✅ Docker is now running"
+                return 0
+            else
+                log_error "❌ Docker is still not running"
+                return 1
+            fi
         else
-            log_error "❌ Docker is still not running"
+            log_info "Docker start cancelled"
             return 1
         fi
     elif [[ "$OSTYPE" == "darwin"* ]]; then
@@ -2894,11 +2938,57 @@ docker_service_stop() {
     
     # Detect OS and stop Docker accordingly
     if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
-        log_info "WSL detected - Please stop Docker Desktop manually on Windows"
-        log_info "💡 Steps:"
+        log_info "WSL detected - Attempting automatic Docker Desktop stop..."
+        
+        # Try multiple automatic methods
+        local stopped_automatically=false
+        
+        # Method 1: Try PowerShell to stop Docker Desktop
+        log_info "🔄 Trying PowerShell method..."
+        if powershell.exe -Command "Get-Process 'Docker Desktop' | Stop-Process -Force" 2>/dev/null; then
+            log_info "📋 PowerShell stop command executed"
+            sleep 3
+            
+            # Check if Docker stopped
+            if ! docker info &>/dev/null 2>&1; then
+                log_success "✅ Docker Desktop stopped automatically via PowerShell"
+                return 0
+            fi
+        fi
+        
+        # Method 2: Try Windows command line to stop Docker Desktop
+        log_info "🔄 Trying taskkill method..."
+        if cmd.exe /c "taskkill /F /IM \"Docker Desktop.exe\" >nul 2>&1" 2>/dev/null; then
+            log_info "📋 Taskkill command executed"
+            sleep 3
+            
+            # Check if Docker stopped
+            if ! docker info &>/dev/null 2>&1; then
+                log_success "✅ Docker Desktop stopped automatically via taskkill"
+                return 0
+            fi
+        fi
+        
+        # Method 3: Try to access Windows registry to stop Docker
+        log_info "🔄 Trying registry method..."
+        if powershell.exe -Command "Stop-Service -Name 'com.docker.service' -Force" 2>/dev/null; then
+            log_info "📋 Docker service stop command executed"
+            sleep 3
+            
+            # Check if Docker stopped
+            if ! docker info &>/dev/null 2>&1; then
+                log_success "✅ Docker Desktop stopped automatically via service"
+                return 0
+            fi
+        fi
+        
+        # If automatic methods failed, fall back to manual
+        log_warn "⚠️ Automatic stop failed - Please stop manually"
+        log_info "💡 Manual Steps:"
         log_info "  1. Right-click Docker Desktop icon in system tray"
         log_info "  2. Select 'Quit Docker Desktop'"
         log_info "  3. Return to this script"
+        echo
         
         local wait_response
         prompt_user "Press Enter when Docker Desktop is stopped..." wait_response
