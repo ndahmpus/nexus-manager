@@ -1,5 +1,5 @@
-#!/bin/bash
-set -Eeuo pipefail
+﻿#!/bin/bash
+set -eu
 
 if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]] || [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
     BASE_DIR="$HOME/nexus-node"
