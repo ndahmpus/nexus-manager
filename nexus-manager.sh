@@ -4525,19 +4525,19 @@ show_auto_refresh_countdown() {
             printf "\n\n"
             printf "${COLOR_PURPLE} ❔ Question    >${COLOR_RESET} Choose Option: "
             
-            # If user pressed Enter or just single char, get full input
+            # Get the rest of input (ignore Enter key for refresh)
             if [[ "$user_input" == $'\n' || "$user_input" == "" ]]; then
-                # User pressed Enter - treat as empty choice (refresh)
-                eval "$choice_var=''"
+                # User pressed Enter - ignore it, don't refresh
+                printf "\r${COLOR_CYAN}ℹ️  Auto-refresh:${COLOR_RESET} ${COLOR_GREEN}ON${COLOR_RESET} (${COLOR_YELLOW}%ds${COLOR_RESET}) | Running nodes: ${COLOR_GREEN}%d${COLOR_RESET} | ${COLOR_YELLOW}Press any key for menu${COLOR_RESET}" "$countdown" "$running_count"
+                continue
             else
                 # User started typing - get the rest of input
                 local rest_input
                 read -r rest_input 2>/dev/null
                 eval "$choice_var='$user_input$rest_input'"
+                echo
+                return 0  # User interrupted countdown
             fi
-            
-            echo
-            return 0  # User interrupted countdown
         fi
         
         ((countdown--))
@@ -4619,9 +4619,9 @@ main() {
             [aA]) docker_prune && should_pause=true ;;
             0) log_info "Exiting program."; exit 0 ;;
             "") 
-                # Empty choice (just Enter pressed) - refresh dashboard
-                log_info "🔄 Refreshing dashboard..." 
-                sleep 1  # Brief pause to show refresh message
+                # Empty choice (just Enter pressed) - ignore it
+                log_warn "Please select a valid option."
+                sleep 1
                 ;;
             *) log_error "Invalid option. Please try again." ; should_pause=true ;;
         esac
