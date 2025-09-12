@@ -37,17 +37,3 @@ desktop.ini
 *.bak
 *.backup
 *.old
-
-# Test & Debug Files
-debug-*.sh
-test-*.sh
-test-*.bat
-test-*.ps1
-temp-*.sh
-simple-test.sh
-final-test-build.sh
-nul
-
-# Development artifacts
-*.tar.gz
-*.zip
