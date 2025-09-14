@@ -29,8 +29,8 @@ NEXUS_CPU_LIMIT=""
 NEXUS_AUTO_RESTART="false"
 NEXUS_AUTO_REFRESH="true"
 NEXUS_REFRESH_INTERVAL="180"
-NEXUS_MAX_DIFFICULTY=""
-NEXUS_MAX_TASKS=""
+NEXUS_MAX_DIFFICULTY="AUTO"
+NEXUS_MAX_TASKS="UNLIMITED"
 
 EOF
     fi
@@ -38,13 +38,13 @@ EOF
     
     # Ensure variables are properly set with defaults if empty
     export NEXUS_DEFAULT_THREADS="${NEXUS_DEFAULT_THREADS:-4}"
-    export NEXUS_MEMORY_LIMIT="${NEXUS_MEMORY_LIMIT:-}"
+    export NEXUS_MEMORY_LIMIT="${NEXUS_MEMORY_LIMIT:-}"  # Empty = unlimited RAM
     export NEXUS_CPU_LIMIT="${NEXUS_CPU_LIMIT:-}"
     export NEXUS_AUTO_RESTART="${NEXUS_AUTO_RESTART:-false}"
     export NEXUS_AUTO_REFRESH="${NEXUS_AUTO_REFRESH:-true}"
     export NEXUS_REFRESH_INTERVAL="${NEXUS_REFRESH_INTERVAL:-180}"
-    export NEXUS_MAX_DIFFICULTY="${NEXUS_MAX_DIFFICULTY:-}"
-    export NEXUS_MAX_TASKS="${NEXUS_MAX_TASKS:-}"
+    export NEXUS_MAX_DIFFICULTY="${NEXUS_MAX_DIFFICULTY:-AUTO}"  # AUTO = server decides
+    export NEXUS_MAX_TASKS="${NEXUS_MAX_TASKS:-UNLIMITED}"      # UNLIMITED = no limit
 }
 
 # Create official nexus config for container
@@ -343,13 +343,14 @@ readonly LOG_FILE="${DATA_DIR}/nexus-${NODE_ID}.log"
 mkdir -p "$DATA_DIR" "$CONFIG_DIR"
 touch "$LOG_FILE"
 
-echo "🚀 Starting Nexus Node ${NODE_ID} (Headless Mode)"
-echo "📊 Threads: AUTO-DETECTED (max-threads deprecated)"
+echo "🚀 Starting Nexus Node ${NODE_ID} (Optimized Headless Mode)"
+echo "📊 Threads: AUTO-DETECTED by CLI (4 threads legacy kept)"
 echo "📁 Data: ${DATA_DIR}"
 echo "⚙️  Config: ${CONFIG_DIR}"
 echo "📝 Log: ${LOG_FILE}"
-echo "🎯 Difficulty: ${MAX_DIFFICULTY:-AUTO}"
-echo "📝 Max Tasks: ${MAX_TASKS:-UNLIMITED}"
+echo "🎯 Difficulty: ${MAX_DIFFICULTY:-AUTO} (Server Optimized)"
+echo "📋 Max Tasks: ${MAX_TASKS:-UNLIMITED} (No Limit)"
+echo "💧 Memory: UNLIMITED (Docker Optimized)"
 echo "🌐 Binary: $(nexus-cli --version 2>/dev/null || echo 'nexus-cli not found')"
 
 # Build command arguments - Always use headless for Docker optimization
@@ -373,13 +374,13 @@ if [ "$CHECK_MEMORY" = "true" ]; then
     CMD_ARGS="$CMD_ARGS --check-memory"
 fi
 
-# Add max-difficulty if specified
-if [ -n "$MAX_DIFFICULTY" ]; then
+# Add max-difficulty if specified (skip if AUTO for server-side optimization)
+if [ -n "$MAX_DIFFICULTY" ] && [ "$MAX_DIFFICULTY" != "AUTO" ]; then
     CMD_ARGS="$CMD_ARGS --max-difficulty $MAX_DIFFICULTY"
 fi
 
-# Add max-tasks if specified for controlled runs
-if [ -n "$MAX_TASKS" ]; then
+# Add max-tasks if specified (skip if UNLIMITED for no limit)
+if [ -n "$MAX_TASKS" ] && [ "$MAX_TASKS" != "UNLIMITED" ]; then
     CMD_ARGS="$CMD_ARGS --max-tasks $MAX_TASKS"
 fi
 
@@ -488,15 +489,11 @@ _run_node_container() {
         env_vars+=("-e" "WALLET_ADDRESS=$final_wallet")
     fi
     
-    # Add max difficulty if set
-    if [[ -n "${NEXUS_MAX_DIFFICULTY:-}" ]]; then
-        env_vars+=("-e" "MAX_DIFFICULTY=${NEXUS_MAX_DIFFICULTY}")
-    fi
+    # Add max difficulty if set (always set with default AUTO)
+    env_vars+=("-e" "MAX_DIFFICULTY=${NEXUS_MAX_DIFFICULTY:-AUTO}")
     
-    # Add max tasks if set  
-    if [[ -n "${NEXUS_MAX_TASKS:-}" ]]; then
-        env_vars+=("-e" "MAX_TASKS=${NEXUS_MAX_TASKS}")
-    fi
+    # Add max tasks if set (always set with default UNLIMITED)
+    env_vars+=("-e" "MAX_TASKS=${NEXUS_MAX_TASKS:-UNLIMITED}")
 
     # Resource limits - ensure clean values
     local resource_args=()
@@ -536,7 +533,7 @@ _run_node_container() {
         create_nexus_config "$node_id" "$final_wallet" "${CONFIG_DIR}/${node_id}" "${NEXUS_ENVIRONMENT:-production}"
     fi
 
-    log_info "Starting container with wallet=${final_wallet:-none}, env=${NEXUS_ENVIRONMENT:-production}, difficulty=${NEXUS_MAX_DIFFICULTY:-auto}, max_tasks=${NEXUS_MAX_TASKS:-unlimited}"
+    log_info "Starting optimized container: wallet=${final_wallet:-none}, env=${NEXUS_ENVIRONMENT:-production}, difficulty=${NEXUS_MAX_DIFFICULTY:-AUTO}, tasks=${NEXUS_MAX_TASKS:-UNLIMITED}, memory=UNLIMITED, mode=HEADLESS"
 
     if ! docker run -dit \
         --name "$name" \
@@ -584,11 +581,11 @@ environment_config_menu() {
         echo -e "  ${COLOR_YELLOW}CURRENT CONFIGURATION${COLOR_RESET}"
         echo -e "    Environment      : ${COLOR_GREEN}${NEXUS_ENVIRONMENT:-production}${COLOR_RESET}"
         echo -e "    Orchestrator URL : ${COLOR_GREEN}${NEXUS_ORCHESTRATOR_URL:-default}${COLOR_RESET}"
-        echo -e "    Memory Limit     : ${COLOR_GREEN}${NEXUS_MEMORY_LIMIT:-unlimited}${COLOR_RESET}"
-        echo -e "    CPU Limit        : ${COLOR_GREEN}${NEXUS_CPU_LIMIT:-unlimited}${COLOR_RESET}"
+        echo -e "    Memory Limit     : ${COLOR_GREEN}${NEXUS_MEMORY_LIMIT:-UNLIMITED}${COLOR_RESET} (Optimal)"
+        echo -e "    CPU Limit        : ${COLOR_GREEN}${NEXUS_CPU_LIMIT:-UNLIMITED}${COLOR_RESET}"
         echo -e "    Default Wallet   : ${COLOR_GREEN}${NEXUS_DEFAULT_WALLET:-none}${COLOR_RESET}"
-        echo -e "    Max Difficulty   : ${COLOR_GREEN}${NEXUS_MAX_DIFFICULTY:-AUTO}${COLOR_RESET}"
-        echo -e "    Max Tasks        : ${COLOR_GREEN}${NEXUS_MAX_TASKS:-UNLIMITED}${COLOR_RESET}"
+        echo -e "    Max Difficulty   : ${COLOR_GREEN}${NEXUS_MAX_DIFFICULTY:-AUTO}${COLOR_RESET} (Server Optimized)"
+        echo -e "    Max Tasks        : ${COLOR_GREEN}${NEXUS_MAX_TASKS:-UNLIMITED}${COLOR_RESET} (No Limit)"
         echo -e "    Check Memory     : ${COLOR_GREEN}${NEXUS_CHECK_MEMORY:-false}${COLOR_RESET}"
         echo -e "    Auto Restart     : ${COLOR_GREEN}${NEXUS_AUTO_RESTART:-false}${COLOR_RESET}"
         echo -e "    Auto Refresh     : ${COLOR_GREEN}${NEXUS_AUTO_REFRESH:-true}${COLOR_RESET}"
@@ -752,60 +749,64 @@ set_max_difficulty() {
     local current_difficulty="${NEXUS_MAX_DIFFICULTY:-}"
     log_info "Current max difficulty: ${current_difficulty:-AUTO}"
     log_info "Available difficulty levels:"
+    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} ${COLOR_GREEN}AUTO (RECOMMENDED - Server Optimized)${COLOR_RESET}"
     echo -e "  ${COLOR_CYAN}[1]${COLOR_RESET} SMALL"
     echo -e "  ${COLOR_CYAN}[2]${COLOR_RESET} SMALL_MEDIUM"
     echo -e "  ${COLOR_CYAN}[3]${COLOR_RESET} MEDIUM"
     echo -e "  ${COLOR_CYAN}[4]${COLOR_RESET} LARGE"
     echo -e "  ${COLOR_CYAN}[5]${COLOR_RESET} EXTRA_LARGE"
-    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} AUTO (Clear setting)"
     echo
     
     local choice
     prompt_user "Select difficulty level: " choice
     
-    local new_difficulty=""
+    local new_difficulty="AUTO"
     case "$choice" in
         1) new_difficulty="SMALL" ;;
         2) new_difficulty="SMALL_MEDIUM" ;;
         3) new_difficulty="MEDIUM" ;;
         4) new_difficulty="LARGE" ;;
         5) new_difficulty="EXTRA_LARGE" ;;
-        0) new_difficulty="" ;;
+        0) new_difficulty="AUTO" ;;
         *) log_error "Invalid choice"; return 1 ;;
     esac
     
     update_config_value "NEXUS_MAX_DIFFICULTY" "$new_difficulty"
     NEXUS_MAX_DIFFICULTY="$new_difficulty"
     
-    if [[ -n "$new_difficulty" ]]; then
-        log_success "Max difficulty set to: $new_difficulty"
+    if [[ "$new_difficulty" == "AUTO" ]]; then
+        log_success "Max difficulty set to: AUTO (Server will optimize task assignment)"
     else
-        log_success "Max difficulty cleared (AUTO)"
+        log_success "Max difficulty set to: $new_difficulty"
     fi
 }
 
 set_max_tasks() {
-    local current_tasks="${NEXUS_MAX_TASKS:-}"
+    local current_tasks="${NEXUS_MAX_TASKS:-UNLIMITED}"
     log_info "Current max tasks: ${current_tasks:-UNLIMITED}"
-    log_info "Enter number of tasks to process before node exits (useful for controlled runs)"
+    log_info "${COLOR_GREEN}UNLIMITED (default)${COLOR_RESET} - Optimal for continuous running"
+    log_info "Custom number - Useful for controlled/testing runs"
     log_info "Examples: 10, 100, 1000, etc."
     echo
     
     local new_tasks
-    prompt_user "Enter max tasks (or press Enter for unlimited): " new_tasks
+    prompt_user "Enter max tasks (or press Enter for UNLIMITED - recommended): " new_tasks
     
-    if [[ -n "$new_tasks" && ! "$new_tasks" =~ ^[0-9]+$ ]]; then
-        log_error "Invalid format. Please enter a positive number."
+    # If empty, set to UNLIMITED (default optimal)
+    if [[ -z "$new_tasks" ]]; then
+        new_tasks="UNLIMITED"
+    elif [[ ! "$new_tasks" =~ ^[0-9]+$ ]]; then
+        log_error "Invalid format. Please enter a positive number or leave empty for UNLIMITED."
         return 1
     fi
     
     update_config_value "NEXUS_MAX_TASKS" "$new_tasks"
     NEXUS_MAX_TASKS="$new_tasks"
     
-    if [[ -n "$new_tasks" ]]; then
-        log_success "Max tasks set to: $new_tasks"
+    if [[ "$new_tasks" == "UNLIMITED" ]]; then
+        log_success "Max tasks set to: UNLIMITED (Optimal for continuous operation)"
     else
-        log_success "Max tasks cleared (UNLIMITED)"
+        log_success "Max tasks set to: $new_tasks (Will stop after this many tasks)"
     fi
 }
 
