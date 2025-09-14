@@ -1,15 +1,17 @@
 # 🚀 Nexus Node Manager
 
-Powerful bash script for managing multiple Nexus node containers with Docker. Real-time dashboard with system monitoring and instant Docker restart functionality.
+Advanced bash script for managing multiple Nexus node containers with Docker. Features real-time dashboard, optimal production defaults, and comprehensive node management.
 
 ## ✨ Key Features
 
 - **📊 Real-time Dashboard** - Live system monitoring with auto-refresh
-- **⚡ Instant Docker Restart** - Fixed Windows compatibility, no waiting times
+- **🎯 Production Optimized** - AUTO difficulty, UNLIMITED tasks, headless mode default
+- **⚡ Latest CLI Support** - Full compatibility with Nexus CLI v0.10.11 (latest)
 - **🔥 Multi-Instance Management** - Run multiple nodes with optimal resource allocation
 - **🎮 Smart Controls** - Start/stop/restart all nodes with one command
 - **📜 Advanced Logging** - Real-time log monitoring with search capabilities
 - **💾 Backup/Restore** - Complete configuration backup and restore
+- **🚀 Docker Optimized** - Headless mode, unlimited memory, lightweight containers
 
 ## 📸 Dashboard Preview
 
@@ -47,8 +49,8 @@ Powerful bash script for managing multiple Nexus node containers with Docker. Re
   [7] 💿 Backup & Restore              [A] 🧹 Docker Cleanup
   [0] 🚪 Exit Program
 
-ℹ️  Settings: Env: production | Memory: unlimited | Auto-Restart: false
-ℹ️  Auto-refresh: ON (60s) | Running nodes: 10
+ℹ️  Settings: Env: production | Memory: UNLIMITED | Difficulty: AUTO | Tasks: UNLIMITED
+ℹ️  Mode: HEADLESS (Optimized) | Auto-refresh: ON (60s) | Running nodes: 10
 ```
 
 ### Dashboard Features:
@@ -94,7 +96,8 @@ Powerful bash script for managing multiple Nexus node containers with Docker. Re
 
 - **Docker Desktop** (Windows/Mac) or Docker Engine (Linux)
 - **Bash shell** (Git Bash, WSL, or native Linux/Mac terminal)
-- **4GB+ RAM** recommended
+- **4GB+ RAM** recommended (8GB+ for multiple nodes)
+- **Nexus CLI v0.10.11** (automatically downloaded)
 
 ## 🚀 Quick Start
 
@@ -113,18 +116,26 @@ bash ./nexus-manager.sh
 
 ## 🔄 Usage
 
-1. **First Run**: Script auto-configures Docker and system settings
-2. **Dashboard**: Real-time monitoring with color-coded status
-3. **Menu Options**: Build/manage instances, view logs, backup/restore
-4. **Multi-Instance**: Automatically optimizes based on your CPU cores
+1. **First Run**: Script auto-configures Docker and optimal production settings
+2. **Dashboard**: Real-time monitoring with color-coded status and performance metrics
+3. **Production Ready**: AUTO difficulty, UNLIMITED tasks, headless mode enabled
+4. **Menu Options**: Build/manage instances, view logs, backup/restore, environment config
+5. **Multi-Instance**: Automatically optimizes based on your CPU cores
 
 ## 🏁 Performance
 
-Auto-optimization based on CPU cores:
-- **24+ cores**: 8 containers 
-- **16+ cores**: 6 containers
-- **8+ cores**: 4 containers
-- **4+ cores**: 2 containers
+### **🎯 Optimal Production Defaults:**
+- **🚀 Headless Mode**: Always enabled for Docker optimization
+- **🎯 AUTO Difficulty**: Server-optimized task assignment
+- **📋 UNLIMITED Tasks**: Continuous operation, maximum earning
+- **💧 Unlimited Memory**: Docker-optimized, prevents crashes
+- **📊 Auto Threading**: CLI auto-detects optimal CPU usage
+
+### **🔥 Multi-Instance Auto-Optimization:**
+- **24+ cores**: 8 containers with optimal resource distribution
+- **16+ cores**: 6 containers with performance tuning
+- **8+ cores**: 4 containers with balanced allocation
+- **4+ cores**: 2 containers with efficient resource usage
 
 ## 📁 Files
 
@@ -150,6 +161,9 @@ sudo usermod -aG docker $USER
 **Container issues:**
 - Check wallet format: `0x` + 40 hex characters
 - View logs via menu option 6
+- Ensure Nexus CLI v0.10.11+ (auto-updated in containers)
+- Use AUTO difficulty for optimal server assignment
+- Keep UNLIMITED tasks for continuous earning
 
 ## 🔄 Updates
 
@@ -158,11 +172,28 @@ git pull origin main
 ./nexus-manager.sh
 ```
 
-**Latest improvements:**
+## 📝 **Changelog**
+
+### **v2.1.0** (Latest - September 2025)
+- 🎯 **Production Optimized Defaults**: AUTO difficulty, UNLIMITED tasks, headless mode
+- ⚡ **Nexus CLI v0.10.11 Support**: Full compatibility with latest features
+- 🚀 **Docker Optimization**: Unlimited memory, lightweight headless containers
+- 📋 **Enhanced Environment Config**: New difficulty levels and task limits
+- 🔧 **Deprecated Threading Handling**: CLI auto-detection with warning messages
+- 💡 **Better UX**: GREEN highlighting for optimal settings, clear recommendations
+
+### **v2.0.0** (Previous)
 - ⚡ Fixed Windows Docker restart (no waiting times)
-- 📊 Enhanced real-time dashboard
-- 🔥 Better multi-instance management
-- 🛠️ Improved error handling
+- 📊 Enhanced real-time dashboard with performance metrics
+- 🔥 Better multi-instance management with resource optimization
+- 🛠️ Improved error handling and stability
+- 🎮 Advanced node control center with comprehensive options
+
+### **v1.0.0** (Initial)
+- 📊 Real-time dashboard with system monitoring
+- 🔥 Multi-instance Docker management
+- 📜 Advanced logging with search capabilities
+- 💾 Backup and restore functionality
 
 ---
-**Made for Nexus community**
+**Made for Nexus community** 🚀

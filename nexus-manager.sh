@@ -289,8 +289,8 @@ RUN apk update && apk add --no-cache curl ca-certificates jq
 # Download nexus-cli binary directly based on architecture
 RUN ARCH=$(uname -m) && \
     case "$ARCH" in \
-        x86_64) NEXUS_URL="https://github.com/nexus-xyz/nexus-cli/releases/download/v0.10.10/nexus-network-linux-x86_64" ;; \
-        aarch64|arm64) NEXUS_URL="https://github.com/nexus-xyz/nexus-cli/releases/download/v0.10.10/nexus-network-linux-arm64" ;; \
+        x86_64) NEXUS_URL="https://github.com/nexus-xyz/nexus-cli/releases/download/v0.10.11/nexus-network-linux-x86_64" ;; \
+        aarch64|arm64) NEXUS_URL="https://github.com/nexus-xyz/nexus-cli/releases/download/v0.10.11/nexus-network-linux-arm64" ;; \
         *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
     esac && \
     echo "Downloading from: $NEXUS_URL" && \
