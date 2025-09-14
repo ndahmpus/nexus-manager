@@ -29,6 +29,8 @@ NEXUS_CPU_LIMIT=""
 NEXUS_AUTO_RESTART="false"
 NEXUS_AUTO_REFRESH="true"
 NEXUS_REFRESH_INTERVAL="180"
+NEXUS_MAX_DIFFICULTY=""
+NEXUS_MAX_TASKS=""
 
 EOF
     fi
@@ -41,6 +43,8 @@ EOF
     export NEXUS_AUTO_RESTART="${NEXUS_AUTO_RESTART:-false}"
     export NEXUS_AUTO_REFRESH="${NEXUS_AUTO_REFRESH:-true}"
     export NEXUS_REFRESH_INTERVAL="${NEXUS_REFRESH_INTERVAL:-180}"
+    export NEXUS_MAX_DIFFICULTY="${NEXUS_MAX_DIFFICULTY:-}"
+    export NEXUS_MAX_TASKS="${NEXUS_MAX_TASKS:-}"
 }
 
 # Create official nexus config for container
@@ -137,7 +141,7 @@ optimize_for_high_performance() {
     # Update config untuk resource optimization
     update_config_value "NEXUS_OPTIMAL_CONTAINERS" "$optimal_containers"
     update_config_value "NEXUS_CORES_PER_CONTAINER" "$cores_per_container"
-    # Always use 4 threads as default
+    # Note: NEXUS_DEFAULT_THREADS kept for compatibility but CLI will auto-detect
     update_config_value "NEXUS_DEFAULT_THREADS" "4"
     
     # Memory optimization - Set unlimited by default
@@ -147,7 +151,7 @@ optimize_for_high_performance() {
     update_config_value "NEXUS_MEMORY_LIMIT" ""
     update_config_value "NEXUS_CPU_LIMIT" "$cores_per_container"
     
-    log_success "Performance optimization applied: $optimal_containers containers, 4 threads each, unlimited memory"
+    log_success "Performance optimization applied: $optimal_containers containers, auto-threading (CLI optimized), unlimited memory"
     
     # Reload config
     source "$CONFIG_FILE"
@@ -339,22 +343,26 @@ readonly LOG_FILE="${DATA_DIR}/nexus-${NODE_ID}.log"
 mkdir -p "$DATA_DIR" "$CONFIG_DIR"
 touch "$LOG_FILE"
 
-echo "🚀 Starting Nexus Node ${NODE_ID}"
-echo "📊 Threads: ${MAX_THREADS:-auto}"
+echo "🚀 Starting Nexus Node ${NODE_ID} (Headless Mode)"
+echo "📊 Threads: AUTO-DETECTED (max-threads deprecated)"
 echo "📁 Data: ${DATA_DIR}"
 echo "⚙️  Config: ${CONFIG_DIR}"
 echo "📝 Log: ${LOG_FILE}"
+echo "🎯 Difficulty: ${MAX_DIFFICULTY:-AUTO}"
+echo "📝 Max Tasks: ${MAX_TASKS:-UNLIMITED}"
 echo "🌐 Binary: $(nexus-cli --version 2>/dev/null || echo 'nexus-cli not found')"
 
-# Build command arguments
+# Build command arguments - Always use headless for Docker optimization
 CMD_ARGS="start --headless"
 
 if [ -n "$NODE_ID" ]; then
     CMD_ARGS="$CMD_ARGS --node-id $NODE_ID"
 fi
 
+# Note: max-threads is now DEPRECATED and will be ignored
+# Nexus CLI will auto-detect optimal threading
 if [ -n "$MAX_THREADS" ]; then
-    CMD_ARGS="$CMD_ARGS --max-threads $MAX_THREADS"
+    echo "⚠️  Warning: --max-threads is deprecated and will be ignored by CLI"
 fi
 
 if [ -n "$ORCHESTRATOR_URL" ]; then
@@ -363,6 +371,16 @@ fi
 
 if [ "$CHECK_MEMORY" = "true" ]; then
     CMD_ARGS="$CMD_ARGS --check-memory"
+fi
+
+# Add max-difficulty if specified
+if [ -n "$MAX_DIFFICULTY" ]; then
+    CMD_ARGS="$CMD_ARGS --max-difficulty $MAX_DIFFICULTY"
+fi
+
+# Add max-tasks if specified for controlled runs
+if [ -n "$MAX_TASKS" ]; then
+    CMD_ARGS="$CMD_ARGS --max-tasks $MAX_TASKS"
 fi
 
 # Create nexus config if wallet provided
@@ -469,6 +487,16 @@ _run_node_container() {
     if [[ -n "$final_wallet" ]]; then
         env_vars+=("-e" "WALLET_ADDRESS=$final_wallet")
     fi
+    
+    # Add max difficulty if set
+    if [[ -n "${NEXUS_MAX_DIFFICULTY:-}" ]]; then
+        env_vars+=("-e" "MAX_DIFFICULTY=${NEXUS_MAX_DIFFICULTY}")
+    fi
+    
+    # Add max tasks if set  
+    if [[ -n "${NEXUS_MAX_TASKS:-}" ]]; then
+        env_vars+=("-e" "MAX_TASKS=${NEXUS_MAX_TASKS}")
+    fi
 
     # Resource limits - ensure clean values
     local resource_args=()
@@ -508,7 +536,7 @@ _run_node_container() {
         create_nexus_config "$node_id" "$final_wallet" "${CONFIG_DIR}/${node_id}" "${NEXUS_ENVIRONMENT:-production}"
     fi
 
-    log_info "Starting container with wallet=${final_wallet:-none}, env=${NEXUS_ENVIRONMENT:-production}, threads=$threads"
+    log_info "Starting container with wallet=${final_wallet:-none}, env=${NEXUS_ENVIRONMENT:-production}, difficulty=${NEXUS_MAX_DIFFICULTY:-auto}, max_tasks=${NEXUS_MAX_TASKS:-unlimited}"
 
     if ! docker run -dit \
         --name "$name" \
@@ -559,6 +587,8 @@ environment_config_menu() {
         echo -e "    Memory Limit     : ${COLOR_GREEN}${NEXUS_MEMORY_LIMIT:-unlimited}${COLOR_RESET}"
         echo -e "    CPU Limit        : ${COLOR_GREEN}${NEXUS_CPU_LIMIT:-unlimited}${COLOR_RESET}"
         echo -e "    Default Wallet   : ${COLOR_GREEN}${NEXUS_DEFAULT_WALLET:-none}${COLOR_RESET}"
+        echo -e "    Max Difficulty   : ${COLOR_GREEN}${NEXUS_MAX_DIFFICULTY:-AUTO}${COLOR_RESET}"
+        echo -e "    Max Tasks        : ${COLOR_GREEN}${NEXUS_MAX_TASKS:-UNLIMITED}${COLOR_RESET}"
         echo -e "    Check Memory     : ${COLOR_GREEN}${NEXUS_CHECK_MEMORY:-false}${COLOR_RESET}"
         echo -e "    Auto Restart     : ${COLOR_GREEN}${NEXUS_AUTO_RESTART:-false}${COLOR_RESET}"
         echo -e "    Auto Refresh     : ${COLOR_GREEN}${NEXUS_AUTO_REFRESH:-true}${COLOR_RESET}"
@@ -570,10 +600,12 @@ environment_config_menu() {
         echo -e "    ${COLOR_CYAN}3.${COLOR_RESET} 💾 Set Memory Limit per Container"
         echo -e "    ${COLOR_CYAN}4.${COLOR_RESET} ⚙️ Set CPU Limit per Container"
         echo -e "    ${COLOR_CYAN}5.${COLOR_RESET} 💰 Set Default Wallet Address"
-        echo -e "    ${COLOR_CYAN}6.${COLOR_RESET} 🧠 Toggle Memory Checking"
-        echo -e "    ${COLOR_CYAN}7.${COLOR_RESET} 🔄 Toggle Auto Restart"
-        echo -e "    ${COLOR_CYAN}8.${COLOR_RESET} 🔄 Auto-Refresh Settings"
-        echo -e "    ${COLOR_CYAN}9.${COLOR_RESET} 📄 View Full Config File"
+        echo -e "    ${COLOR_CYAN}6.${COLOR_RESET} 🎯 Set Max Difficulty Level"
+        echo -e "    ${COLOR_CYAN}7.${COLOR_RESET} 📋 Set Max Tasks Limit"
+        echo -e "    ${COLOR_CYAN}8.${COLOR_RESET} 🧠 Toggle Memory Checking"
+        echo -e "    ${COLOR_CYAN}9.${COLOR_RESET} 🔄 Toggle Auto Restart"
+        echo -e "    ${COLOR_CYAN}10.${COLOR_RESET} 🔄 Auto-Refresh Settings"
+        echo -e "    ${COLOR_CYAN}11.${COLOR_RESET} 📄 View Full Config File"
         echo
         echo -e "    ${COLOR_CYAN}0.${COLOR_RESET} 🔙 Back to Main Menu"
         echo
@@ -589,10 +621,12 @@ environment_config_menu() {
             3) set_memory_limit && should_pause=true ;;
             4) set_cpu_limit && should_pause=true ;;
             5) set_default_wallet && should_pause=true ;;
-            6) toggle_memory_checking && should_pause=true ;;
-            7) toggle_auto_restart && should_pause=true ;;
-            8) auto_refresh_settings && should_pause=true ;;
-            9) view_config_file && should_pause=true ;;
+            6) set_max_difficulty && should_pause=true ;;
+            7) set_max_tasks && should_pause=true ;;
+            8) toggle_memory_checking && should_pause=true ;;
+            9) toggle_auto_restart && should_pause=true ;;
+            10) auto_refresh_settings && should_pause=true ;;
+            11) view_config_file && should_pause=true ;;
             0) return ;;
             *) log_error "Invalid option." ; should_pause=true ;;
         esac
@@ -711,6 +745,67 @@ set_default_wallet() {
         log_success "Default wallet set to: $new_wallet"
     else
         log_success "Default wallet cleared"
+    fi
+}
+
+set_max_difficulty() {
+    local current_difficulty="${NEXUS_MAX_DIFFICULTY:-}"
+    log_info "Current max difficulty: ${current_difficulty:-AUTO}"
+    log_info "Available difficulty levels:"
+    echo -e "  ${COLOR_CYAN}[1]${COLOR_RESET} SMALL"
+    echo -e "  ${COLOR_CYAN}[2]${COLOR_RESET} SMALL_MEDIUM"
+    echo -e "  ${COLOR_CYAN}[3]${COLOR_RESET} MEDIUM"
+    echo -e "  ${COLOR_CYAN}[4]${COLOR_RESET} LARGE"
+    echo -e "  ${COLOR_CYAN}[5]${COLOR_RESET} EXTRA_LARGE"
+    echo -e "  ${COLOR_CYAN}[0]${COLOR_RESET} AUTO (Clear setting)"
+    echo
+    
+    local choice
+    prompt_user "Select difficulty level: " choice
+    
+    local new_difficulty=""
+    case "$choice" in
+        1) new_difficulty="SMALL" ;;
+        2) new_difficulty="SMALL_MEDIUM" ;;
+        3) new_difficulty="MEDIUM" ;;
+        4) new_difficulty="LARGE" ;;
+        5) new_difficulty="EXTRA_LARGE" ;;
+        0) new_difficulty="" ;;
+        *) log_error "Invalid choice"; return 1 ;;
+    esac
+    
+    update_config_value "NEXUS_MAX_DIFFICULTY" "$new_difficulty"
+    NEXUS_MAX_DIFFICULTY="$new_difficulty"
+    
+    if [[ -n "$new_difficulty" ]]; then
+        log_success "Max difficulty set to: $new_difficulty"
+    else
+        log_success "Max difficulty cleared (AUTO)"
+    fi
+}
+
+set_max_tasks() {
+    local current_tasks="${NEXUS_MAX_TASKS:-}"
+    log_info "Current max tasks: ${current_tasks:-UNLIMITED}"
+    log_info "Enter number of tasks to process before node exits (useful for controlled runs)"
+    log_info "Examples: 10, 100, 1000, etc."
+    echo
+    
+    local new_tasks
+    prompt_user "Enter max tasks (or press Enter for unlimited): " new_tasks
+    
+    if [[ -n "$new_tasks" && ! "$new_tasks" =~ ^[0-9]+$ ]]; then
+        log_error "Invalid format. Please enter a positive number."
+        return 1
+    fi
+    
+    update_config_value "NEXUS_MAX_TASKS" "$new_tasks"
+    NEXUS_MAX_TASKS="$new_tasks"
+    
+    if [[ -n "$new_tasks" ]]; then
+        log_success "Max tasks set to: $new_tasks"
+    else
+        log_success "Max tasks cleared (UNLIMITED)"
     fi
 }
 
